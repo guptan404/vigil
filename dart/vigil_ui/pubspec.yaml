@@ -1,0 +1,21 @@
+name: vigil_ui
+description: Flutter overlay inspector UI for Vigil.
+version: 0.1.0
+publish_to: "none"
+repository: https://example.com/vigil
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sensors_plus: ^6.1.2
+  vigil_core:
+    path: ../vigil_core
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

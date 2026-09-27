@@ -1,0 +1,17 @@
+name: vigil_backend
+description: Backend upload connector for Vigil captured network calls.
+version: 0.1.0
+publish_to: "none"
+repository: https://example.com/vigil
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  http: ^1.6.0
+  vigil_core:
+    path: ../vigil_core
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.26.0

@@ -1,0 +1,14 @@
+{
+  "name": "vigil-node-server-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@vigil/express": "0.1.0",
+    "express": "^5.1.0",
+    "tsx": "^4.20.0"
+  }
+}

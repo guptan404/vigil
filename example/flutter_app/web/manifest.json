@@ -1,0 +1,10 @@
+{
+  "name": "Vigil Example",
+  "short_name": "Vigil",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#00897b",
+  "description": "Example Flutter app for Vigil network inspection."
+}
+

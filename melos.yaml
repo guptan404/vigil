@@ -1,0 +1,18 @@
+name: vigil_workspace
+
+packages:
+  - dart/**
+  - example/flutter_app
+
+command:
+  bootstrap:
+    usePubspecOverrides: true
+
+scripts:
+  test:
+    run: melos exec -- "dart test || flutter test"
+    description: Run Dart and Flutter package tests.
+  analyze:
+    run: melos exec -- "dart analyze || flutter analyze"
+    description: Analyze Dart and Flutter packages.
+

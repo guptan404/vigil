@@ -1,0 +1,17 @@
+.DS_Store
+
+# Dart / Flutter
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+pubspec.lock
+
+# Node
+node_modules/
+dist/
+
+# Logs
+*.log
+
