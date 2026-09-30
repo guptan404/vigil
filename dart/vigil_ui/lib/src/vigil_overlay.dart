@@ -66,7 +66,7 @@ class _VigilOverlayState extends State<VigilOverlay> {
       children: [
         widget.child,
         if (_isInspectorOpen) _InspectorPanel(onClose: _closeInspector),
-        if (widget.showFloatingButton)
+        if (widget.showFloatingButton && !_isInspectorOpen)
           Positioned(
             right: 16,
             bottom: 24,
@@ -131,15 +131,10 @@ class _InspectorPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Positioned.fill(
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        child: SafeArea(
-          child: HeroControllerScope.none(
-            child: Navigator(
-              onGenerateRoute: (_) => MaterialPageRoute<void>(
-                builder: (_) => VigilInspector(onClose: onClose),
-              ),
-            ),
+      child: HeroControllerScope.none(
+        child: Navigator(
+          onGenerateRoute: (_) => MaterialPageRoute<void>(
+            builder: (_) => VigilInspector(onClose: onClose),
           ),
         ),
       ),

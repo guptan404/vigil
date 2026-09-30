@@ -16,8 +16,17 @@ class VigilInspector extends StatefulWidget {
 
 class _VigilInspectorState extends State<VigilInspector> {
   String? _selectedCallId;
+  final TextEditingController _searchController = TextEditingController();
+  _CallFilter _filter = _CallFilter.all;
+  String _query = '';
 
   Vigil get _vigil => widget.vigil ?? Vigil.instance;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,80 +34,73 @@ class _VigilInspectorState extends State<VigilInspector> {
       stream: _vigil.events,
       builder: (context, _) {
         final calls = _vigil.calls.reversed.toList(growable: false);
-        final selectedCall = _selectedCall(calls);
+        final visibleCalls = _filteredCalls(calls);
+        final selectedCall = _selectedCall(visibleCalls);
 
-        return Scaffold(
-          backgroundColor: _surfaceBase(context),
-          appBar: AppBar(
-            titleSpacing: 16,
-            title: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Vigil'),
-                Text(
-                  'Network inspector',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
-                ),
-              ],
-            ),
-            actions: [
-              IconButton(
-                tooltip: 'Clear',
-                onPressed: calls.isEmpty ? null : _vigil.clear,
-                icon: const Icon(Icons.delete_outline),
+        return Theme(
+          data: _inspectorTheme(context),
+          child: Builder(
+            builder: (context) => Scaffold(
+              backgroundColor: _surfaceBase(context),
+              appBar: _InspectorAppBar(
+                hasCalls: calls.isNotEmpty,
+                onClear: _vigil.clear,
+                onClose: widget.onClose,
               ),
-              if (widget.onClose != null)
-                IconButton(
-                  tooltip: 'Close',
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close),
-                ),
-            ],
-          ),
-          body: calls.isEmpty
-              ? const _EmptyState()
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide = constraints.maxWidth >= 900;
-                    if (!isWide) {
-                      return _CallListView(
-                        calls: calls,
-                        selectedCallId: selectedCall?.id,
-                        onSelected: (call) {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => _CallDetailPage(
-                                call: call,
-                                vigil: _vigil,
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    }
-
-                    return Row(
-                      children: [
-                        SizedBox(
-                          width: 380,
-                          child: _CallListView(
-                            calls: calls,
-                            selectedCallId: selectedCall?.id,
-                            onSelected: (call) {
+              body: calls.isEmpty
+                  ? const _EmptyState()
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isWide = constraints.maxWidth >= 840;
+                        final list = _CallListView(
+                          calls: calls,
+                          visibleCalls: visibleCalls,
+                          selectedCallId: isWide ? selectedCall?.id : null,
+                          searchController: _searchController,
+                          query: _query,
+                          filter: _filter,
+                          onQueryChanged: (value) {
+                            setState(() => _query = value.trim().toLowerCase());
+                          },
+                          onFilterChanged: (value) {
+                            setState(() => _filter = value);
+                          },
+                          onSelected: (call) {
+                            if (isWide) {
                               setState(() => _selectedCallId = call.id);
-                            },
-                          ),
-                        ),
-                        const VerticalDivider(width: 1),
-                        Expanded(
-                          child: selectedCall == null
-                              ? const _EmptyState()
-                              : _CallDetailPane(call: selectedCall, vigil: _vigil),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+                              return;
+                            }
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => _CallDetailPage(
+                                  call: call,
+                                  vigil: _vigil,
+                                ),
+                              ),
+                            );
+                          },
+                        );
+
+                        if (!isWide) return list;
+
+                        return Row(
+                          children: [
+                            SizedBox(width: 420, child: list),
+                            const VerticalDivider(width: 1),
+                            Expanded(
+                              child: selectedCall == null
+                                  ? const _NoResultsState()
+                                  : _CallDetailPane(
+                                      call: selectedCall,
+                                      vigil: _vigil,
+                                    ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+            ),
+          ),
         );
       },
     );
@@ -116,34 +118,243 @@ class _VigilInspectorState extends State<VigilInspector> {
 
     return calls.first;
   }
+
+  List<VigilHttpCall> _filteredCalls(List<VigilHttpCall> calls) {
+    return calls.where((call) {
+      if (!_filter.matches(call)) return false;
+      if (_query.isEmpty) return true;
+
+      final responseStatus = call.response?.statusCode.toString() ?? '';
+      final searchable = <String>[
+        call.request.method,
+        call.request.uri.toString(),
+        call.request.uri.host,
+        call.state.name,
+        responseStatus,
+        call.error?.message ?? '',
+      ].join(' ').toLowerCase();
+      return searchable.contains(_query);
+    }).toList(growable: false);
+  }
+}
+
+enum _CallFilter { all, failed, slow, post, get }
+
+extension on _CallFilter {
+  String get label => switch (this) {
+        _CallFilter.all => 'All',
+        _CallFilter.failed => 'Failed',
+        _CallFilter.slow => 'Slow',
+        _CallFilter.post => 'POST',
+        _CallFilter.get => 'GET',
+      };
+
+  bool matches(VigilHttpCall call) => switch (this) {
+        _CallFilter.all => true,
+        _CallFilter.failed => call.state == VigilCallState.failed ||
+            (call.response?.statusCode ?? 0) >= 400,
+        _CallFilter.slow => _isSlow(call),
+        _CallFilter.post => call.request.method.toUpperCase() == 'POST',
+        _CallFilter.get => call.request.method.toUpperCase() == 'GET',
+      };
+}
+
+class _InspectorAppBar extends StatelessWidget implements PreferredSizeWidget {
+  const _InspectorAppBar({
+    required this.hasCalls,
+    required this.onClear,
+    required this.onClose,
+  });
+
+  final bool hasCalls;
+  final VoidCallback onClear;
+  final VoidCallback? onClose;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(72);
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AppBar(
+      toolbarHeight: preferredSize.height,
+      titleSpacing: 20,
+      title: Row(
+        children: [
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Vigil',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5,
+                      ),
+                ),
+                Text(
+                  'Network inspector',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'LIVE',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        IconButton(
+          tooltip: 'Clear requests',
+          onPressed: hasCalls ? onClear : null,
+          icon: const Icon(Icons.delete_outline_rounded),
+        ),
+        if (onClose != null)
+          IconButton(
+            tooltip: 'Close inspector',
+            onPressed: onClose,
+            icon: const Icon(Icons.close_rounded),
+          ),
+        const SizedBox(width: 8),
+      ],
+    );
+  }
 }
 
 class _CallListView extends StatelessWidget {
   const _CallListView({
     required this.calls,
+    required this.visibleCalls,
     required this.selectedCallId,
+    required this.searchController,
+    required this.query,
+    required this.filter,
+    required this.onQueryChanged,
+    required this.onFilterChanged,
     required this.onSelected,
   });
 
   final List<VigilHttpCall> calls;
+  final List<VigilHttpCall> visibleCalls;
   final String? selectedCallId;
+  final TextEditingController searchController;
+  final String query;
+  final _CallFilter filter;
+  final ValueChanged<String> onQueryChanged;
+  final ValueChanged<_CallFilter> onFilterChanged;
   final ValueChanged<VigilHttpCall> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _SummaryStrip(calls: calls),
-        const SizedBox(height: 12),
-        for (final call in calls) ...[
-          _CallTile(
-            call: call,
-            selected: call.id == selectedCallId,
-            onTap: () => onSelected(call),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SummaryStrip(calls: calls),
+              const SizedBox(height: 14),
+              TextField(
+                controller: searchController,
+                onChanged: onQueryChanged,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'Search requests',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          onPressed: () {
+                            searchController.clear();
+                            onQueryChanged('');
+                          },
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _CallFilter.values.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final value = _CallFilter.values[index];
+                    return ChoiceChip(
+                      label: Text(value.label),
+                      selected: value == filter,
+                      onSelected: (_) => onFilterChanged(value),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
           ),
-          const SizedBox(height: 8),
-        ],
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: visibleCalls.isEmpty
+              ? const _NoResultsState()
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 20),
+                  itemCount: visibleCalls.length,
+                  separatorBuilder: (_, __) => const Divider(
+                    height: 1,
+                    indent: 76,
+                    endIndent: 8,
+                  ),
+                  itemBuilder: (context, index) {
+                    final call = visibleCalls[index];
+                    return _CallTile(
+                      call: call,
+                      selected: call.id == selectedCallId,
+                      onTap: () => onSelected(call),
+                    );
+                  },
+                ),
+        ),
       ],
     );
   }
@@ -156,33 +367,126 @@ class _SummaryStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final failed = calls.where((call) => call.state == VigilCallState.failed).length;
-    final slow = calls.where((call) {
-      final duration = call.duration;
-      return duration != null && duration.inMilliseconds >= 1000;
+    final failed = calls.where((call) {
+      return call.state == VigilCallState.failed ||
+          (call.response?.statusCode ?? 0) >= 400;
     }).length;
-    final latest = calls.isEmpty ? null : calls.first;
+    final slow = calls.where(_isSlow).length;
+    final scheme = Theme.of(context).colorScheme;
 
-    return _Panel(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Text.rich(
+      TextSpan(
+        style: Theme.of(context).textTheme.labelLarge,
         children: [
-          Row(
-            children: [
-              Expanded(child: _MetricTile(label: 'Calls', value: '${calls.length}')),
-              Expanded(child: _MetricTile(label: 'Failed', value: '$failed')),
-              Expanded(child: _MetricTile(label: 'Slow', value: '$slow')),
-            ],
+          TextSpan(
+            text: '${calls.length}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
           ),
-          if (latest != null) ...[
+          TextSpan(text: calls.length == 1 ? ' request' : ' requests'),
+          TextSpan(text: '  •  ', style: TextStyle(color: scheme.outline)),
+          TextSpan(
+            text: '$failed',
+            style: TextStyle(
+              color: failed == 0 ? null : scheme.error,
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const TextSpan(text: ' failed'),
+          TextSpan(text: '  •  ', style: TextStyle(color: scheme.outline)),
+          TextSpan(
+            text: '$slow',
+            style: TextStyle(
+              color: slow == 0 ? null : _warningColor(context),
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const TextSpan(text: ' slow'),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+class _NoResultsState extends StatelessWidget {
+  const _NoResultsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.filter_alt_off_outlined,
+              size: 32,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 10),
             Text(
-              'Latest ${latest.request.method} ${_shortPath(latest.request.uri)}',
+              'No matching requests',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 4),
+            const _MutedText('Try a different search or filter.'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestMeta extends StatelessWidget {
+  const _RequestMeta({required this.call, required this.statusColor});
+
+  final VigilHttpCall call;
+  final Color statusColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = call.response?.statusCode.toString() ?? call.state.name;
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(color: muted);
+
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          Flexible(
+            child: Text(
+              call.request.uri.host.isEmpty
+                  ? 'Local request'
+                  : call.request.uri.host,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: style,
             ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Text('•', style: style),
+          ),
+          Text(
+            status,
+            style: style?.copyWith(
+              color: statusColor,
+              fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          if (constraints.maxWidth >= 210) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Text('•', style: style),
+            ),
+            Text(_formatTime(call.startedAt), style: style),
           ],
         ],
       ),
@@ -190,21 +494,60 @@ class _SummaryStrip extends StatelessWidget {
   }
 }
 
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({required this.label, required this.value});
+class _DurationLabel extends StatelessWidget {
+  const _DurationLabel({required this.call});
 
-  final String label;
-  final String value;
+  final VigilHttpCall call;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelSmall),
-        const SizedBox(height: 2),
-        Text(value, style: Theme.of(context).textTheme.titleLarge),
-      ],
+    final duration = call.duration;
+    final failed = call.state == VigilCallState.failed ||
+        (call.response?.statusCode ?? 0) >= 400;
+    final color = failed
+        ? Theme.of(context).colorScheme.error
+        : _isSlow(call)
+            ? _warningColor(context)
+            : Theme.of(context).colorScheme.onSurface;
+
+    return Text(
+      duration == null ? 'pending' : _formatDuration(duration),
+      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+        color: color,
+        fontWeight: FontWeight.w700,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+  }
+}
+
+class _MethodBadge extends StatelessWidget {
+  const _MethodBadge(this.method);
+
+  final String method;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _methodColor(method);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 50),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+          child: Text(
+            method.toUpperCase(),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -223,48 +566,68 @@ class _CallTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final response = call.response;
-    final status = response?.statusCode.toString() ?? call.state.name;
-    final duration = call.duration;
     final color = _statusColor(response?.statusCode, call.state);
+    final scheme = Theme.of(context).colorScheme;
 
-    return _Panel(
-      selected: selected,
-      padding: EdgeInsets.zero,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+    return Semantics(
+      button: true,
+      label: '${call.request.method} ${call.request.uri}, '
+          '${response?.statusCode ?? call.state.name}, '
+          '${call.duration == null ? 'pending' : _formatDuration(call.duration!)}',
+      child: Material(
+        color: selected
+            ? scheme.primaryContainer.withValues(alpha: 0.36)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 78),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+              child: Row(
                 children: [
-                  _Badge(text: call.request.method, color: _methodColor(call.request.method)),
-                  const SizedBox(width: 8),
-                  _Badge(text: status, color: color),
-                  const Spacer(),
-                  Text(
-                    duration == null ? 'pending' : '${duration.inMilliseconds} ms',
-                    style: Theme.of(context).textTheme.labelMedium,
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration:
+                        BoxDecoration(color: color, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 11),
+                  _MethodBadge(call.request.method),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _shortPath(call.request.uri),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.1,
+                                  ),
+                        ),
+                        const SizedBox(height: 4),
+                        _RequestMeta(call: call, statusColor: color),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _DurationLabel(call: call),
+                  const SizedBox(width: 2),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 20,
+                    color: scheme.outline,
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Text(
-                _shortPath(call.request.uri),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                call.request.uri.host,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -280,10 +643,29 @@ class _CallDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _surfaceBase(context),
-      appBar: AppBar(title: Text('${call.request.method} ${_shortPath(call.request.uri)}')),
-      body: _CallDetailPane(call: call, vigil: vigil),
+    return Theme(
+      data: _inspectorTheme(context),
+      child: Builder(
+        builder: (context) => Scaffold(
+          backgroundColor: _surfaceBase(context),
+          appBar: AppBar(
+            title: const Text('Request details'),
+            actions: [
+              IconButton(
+                tooltip: 'Copy cURL',
+                onPressed: () => _copyWithFeedback(
+                  context,
+                  vigil.toCurl(call),
+                  'cURL copied',
+                ),
+                icon: const Icon(Icons.terminal_rounded),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+          body: _CallDetailPane(call: call, vigil: vigil),
+        ),
+      ),
     );
   }
 }
@@ -301,14 +683,14 @@ class _CallDetailPane extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _DetailHeader(call: call),
+          _DetailHeader(call: call, vigil: vigil),
           const TabBar(
             isScrollable: true,
             tabAlignment: TabAlignment.start,
             tabs: [
               Tab(text: 'Overview'),
-              Tab(text: 'Payload'),
-              Tab(text: 'Headers'),
+              Tab(text: 'Request'),
+              Tab(text: 'Response'),
               Tab(text: 'Timing'),
               Tab(text: 'Debug'),
             ],
@@ -317,8 +699,8 @@ class _CallDetailPane extends StatelessWidget {
             child: TabBarView(
               children: [
                 _OverviewTab(call: call, vigil: vigil),
-                _PayloadTab(call: call),
-                _HeadersTab(call: call),
+                _RequestTab(call: call),
+                _ResponseTab(call: call),
                 _TimingTab(call: call),
                 _ServerDebugTab(call: call),
               ],
@@ -331,9 +713,10 @@ class _CallDetailPane extends StatelessWidget {
 }
 
 class _DetailHeader extends StatelessWidget {
-  const _DetailHeader({required this.call});
+  const _DetailHeader({required this.call, required this.vigil});
 
   final VigilHttpCall call;
+  final Vigil vigil;
 
   @override
   Widget build(BuildContext context) {
@@ -341,36 +724,100 @@ class _DetailHeader extends StatelessWidget {
     final duration = call.duration;
     final status = response?.statusCode.toString() ?? call.state.name;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: _Panel(
-        padding: const EdgeInsets.all(16),
+    final statusColor = _statusColor(response?.statusCode, call.state);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLowest,
+        border: Border(
+          bottom:
+              BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                _Badge(text: call.request.method, color: _methodColor(call.request.method)),
+                _MethodBadge(call.request.method),
                 const SizedBox(width: 8),
-                _Badge(text: status, color: _statusColor(response?.statusCode, call.state)),
+                _Badge(text: status, color: statusColor),
                 const Spacer(),
                 if (duration != null)
-                  _Badge(text: '${duration.inMilliseconds} ms', color: Colors.indigo),
+                  Text(
+                    _formatDuration(duration),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: _isSlow(call)
+                          ? _warningColor(context)
+                          : Theme.of(context).colorScheme.onSurface,
+                      fontWeight: FontWeight.w800,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
               ],
             ),
-            const SizedBox(height: 12),
-            SelectableText(
-              call.request.uri.toString(),
-              style: Theme.of(context).textTheme.titleMedium,
+            const SizedBox(height: 14),
+            Text(
+              _pathOnly(call.request.uri),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 5),
+            Text(
+              call.request.uri.host.isEmpty
+                  ? 'Local request'
+                  : call.request.uri.host,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                _InfoChip(label: 'Host', value: call.request.uri.host),
-                _InfoChip(label: 'Started', value: _formatTime(call.startedAt)),
-                _InfoChip(label: 'Trace', value: call.request.traceContext.traceId),
+                OutlinedButton.icon(
+                  onPressed: () => _copyWithFeedback(
+                    context,
+                    call.request.uri.toString(),
+                    'URL copied',
+                  ),
+                  icon: const Icon(Icons.link_rounded, size: 18),
+                  label: const Text('Copy URL'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _copyWithFeedback(
+                    context,
+                    vigil.toCurl(call),
+                    'cURL copied',
+                  ),
+                  icon: const Icon(Icons.terminal_rounded, size: 18),
+                  label: const Text('Copy cURL'),
+                ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    child: Text(
+                      'Started ${_formatTime(call.startedAt)}',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ],
@@ -395,12 +842,13 @@ class _OverviewTab extends StatelessWidget {
     return _TabList(
       children: [
         _Section(
-          title: 'Request',
+          title: 'Summary',
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _KeyValueRow('URL', call.request.uri.toString()),
               _KeyValueRow('Method', call.request.method),
               _KeyValueRow('State', call.state.name),
+              _KeyValueRow('Started', _formatTime(call.startedAt)),
               _KeyValueRow('Trace ID', call.request.traceContext.traceId),
             ],
           ),
@@ -408,10 +856,21 @@ class _OverviewTab extends StatelessWidget {
         _Section(
           title: 'Response',
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _KeyValueRow('Status', response == null ? '-' : '${response.statusCode} ${response.statusMessage ?? ''}'.trim()),
-              _KeyValueRow('Duration', call.duration == null ? '-' : '${call.duration!.inMilliseconds} ms'),
-              _KeyValueRow('Server timings', '${response?.serverTimings.length ?? 0}'),
+              _KeyValueRow(
+                  'Status',
+                  response == null
+                      ? '-'
+                      : '${response.statusCode} ${response.statusMessage ?? ''}'
+                          .trim()),
+              _KeyValueRow(
+                  'Duration',
+                  call.duration == null
+                      ? '-'
+                      : _formatDuration(call.duration!)),
+              _KeyValueRow(
+                  'Server timings', '${response?.serverTimings.length ?? 0}'),
             ],
           ),
         ),
@@ -419,6 +878,7 @@ class _OverviewTab extends StatelessWidget {
           _Section(
             title: 'Error',
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _KeyValueRow('Type', error.type ?? '-'),
                 _KeyValueRow('Message', error.message),
@@ -428,7 +888,7 @@ class _OverviewTab extends StatelessWidget {
         _Section(
           title: 'cURL',
           trailing: TextButton.icon(
-            onPressed: () => Clipboard.setData(ClipboardData(text: curl)),
+            onPressed: () => _copyWithFeedback(context, curl, 'cURL copied'),
             icon: const Icon(Icons.copy, size: 18),
             label: const Text('Copy'),
           ),
@@ -439,45 +899,89 @@ class _OverviewTab extends StatelessWidget {
   }
 }
 
-class _PayloadTab extends StatelessWidget {
-  const _PayloadTab({required this.call});
+class _RequestTab extends StatelessWidget {
+  const _RequestTab({required this.call});
+
+  final VigilHttpCall call;
+
+  @override
+  Widget build(BuildContext context) {
+    return _TabList(
+      children: [
+        _Section(
+          title: 'Request',
+          trailing: TextButton.icon(
+            onPressed: () => _copyWithFeedback(
+              context,
+              call.request.uri.toString(),
+              'URL copied',
+            ),
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            label: const Text('Copy URL'),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _KeyValueRow('URL', call.request.uri.toString()),
+              _KeyValueRow('Method', call.request.method),
+              _KeyValueRow('Started', _formatTime(call.startedAt)),
+              _KeyValueRow('Trace ID', call.request.traceContext.traceId),
+            ],
+          ),
+        ),
+        _Section(
+          title: 'Query Parameters',
+          child: _QueryParameters(call.request.uri.queryParametersAll),
+        ),
+        _Section(title: 'Headers', child: _HeadersTable(call.request.headers)),
+        _Section(title: 'Body', child: _BodyView(call.request.body)),
+      ],
+    );
+  }
+}
+
+class _ResponseTab extends StatelessWidget {
+  const _ResponseTab({required this.call});
 
   final VigilHttpCall call;
 
   @override
   Widget build(BuildContext context) {
     final response = call.response;
+    if (response == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: _MutedText('No response captured'),
+        ),
+      );
+    }
 
     return _TabList(
       children: [
-        _Section(title: 'Request Body', child: _BodyView(call.request.body)),
         _Section(
-          title: 'Response Body',
-          child: response == null
-              ? const _MutedText('No response captured')
-              : _BodyView(response.body),
+          title: 'Response',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _KeyValueRow('Status', '${response.statusCode}'),
+              _KeyValueRow('Message', response.statusMessage ?? '-'),
+              _KeyValueRow(
+                'Completed',
+                call.completedAt == null ? '-' : _formatTime(call.completedAt!),
+              ),
+              _KeyValueRow(
+                'Duration',
+                call.duration == null ? '-' : _formatDuration(call.duration!),
+              ),
+            ],
+          ),
         ),
-      ],
-    );
-  }
-}
-
-class _HeadersTab extends StatelessWidget {
-  const _HeadersTab({required this.call});
-
-  final VigilHttpCall call;
-
-  @override
-  Widget build(BuildContext context) {
-    return _TabList(
-      children: [
-        _Section(title: 'Request Headers', child: _HeadersTable(call.request.headers)),
         _Section(
-          title: 'Response Headers',
-          child: call.response == null
-              ? const _MutedText('No response captured')
-              : _HeadersTable(call.response!.headers),
+          title: 'Headers',
+          child: _HeadersTable(response.headers),
         ),
+        _Section(title: 'Body', child: _BodyView(response.body)),
       ],
     );
   }
@@ -504,10 +1008,19 @@ class _TimingTab extends StatelessWidget {
         _Section(
           title: 'Client Timing',
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _KeyValueRow('Started', _formatTime(call.startedAt)),
-              _KeyValueRow('Completed', call.completedAt == null ? '-' : _formatTime(call.completedAt!)),
-              _KeyValueRow('Duration', call.duration == null ? '-' : '${call.duration!.inMilliseconds} ms'),
+              _KeyValueRow(
+                  'Completed',
+                  call.completedAt == null
+                      ? '-'
+                      : _formatTime(call.completedAt!)),
+              _KeyValueRow(
+                  'Duration',
+                  call.duration == null
+                      ? '-'
+                      : '${call.duration!.inMilliseconds} ms'),
             ],
           ),
         ),
@@ -536,7 +1049,8 @@ class _TimingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final duration = timing.duration;
-    final fraction = duration == null ? 0.0 : (duration / maxDuration).clamp(0.0, 1.0);
+    final fraction =
+        duration == null ? 0.0 : (duration / maxDuration).clamp(0.0, 1.0);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -545,13 +1059,17 @@ class _TimingRow extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text(timing.name, style: Theme.of(context).textTheme.titleSmall)),
-              Text(duration == null ? '-' : '${duration.toStringAsFixed(1)} ms'),
+              Expanded(
+                  child: Text(timing.name,
+                      style: Theme.of(context).textTheme.titleSmall)),
+              Text(
+                  duration == null ? '-' : '${duration.toStringAsFixed(1)} ms'),
             ],
           ),
           if (timing.description != null && timing.description!.isNotEmpty) ...[
             const SizedBox(height: 2),
-            Text(timing.description!, style: Theme.of(context).textTheme.bodySmall),
+            Text(timing.description!,
+                style: Theme.of(context).textTheme.bodySmall),
           ],
           const SizedBox(height: 6),
           LinearProgressIndicator(
@@ -588,6 +1106,7 @@ class _ServerDebugTab extends StatelessWidget {
         _Section(
           title: 'Server Debug',
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _KeyValueRow('Error', debug.error ?? '-'),
               _KeyValueRow('Truncated', debug.truncated ? 'Yes' : 'No'),
@@ -603,6 +1122,7 @@ class _ServerDebugTab extends StatelessWidget {
           child: debug.context.isEmpty
               ? const _MutedText('No context')
               : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (final entry in debug.context.entries)
                       _KeyValueRow(entry.key, '${entry.value}'),
@@ -622,7 +1142,7 @@ class _TabList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
       itemCount: children.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) => children[index],
@@ -647,7 +1167,8 @@ class _Section extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Text(title, style: Theme.of(context).textTheme.titleMedium),
+                child:
+                    Text(title, style: Theme.of(context).textTheme.titleMedium),
               ),
               if (trailing != null) trailing!,
             ],
@@ -661,35 +1182,20 @@ class _Section extends StatelessWidget {
 }
 
 class _Panel extends StatelessWidget {
-  const _Panel({
-    required this.child,
-    this.padding = const EdgeInsets.all(14),
-    this.selected = false,
-  });
+  const _Panel({required this.child});
 
   final Widget child;
-  final EdgeInsetsGeometry padding;
-  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: selected ? scheme.primary.withValues(alpha: 0.08) : scheme.surface,
-        border: Border.all(
-          color: selected ? scheme.primary : scheme.outlineVariant.withValues(alpha: 0.7),
-        ),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: scheme.surfaceContainerLowest,
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Padding(padding: padding, child: child),
+      child: Padding(padding: const EdgeInsets.all(14), child: child),
     );
   }
 }
@@ -713,7 +1219,9 @@ class _BodyView extends StatelessWidget {
     }
 
     final text = _prettyBody(body);
-    final suffix = body.truncated ? '\n\n[truncated at ${body.text?.length ?? 0} chars]' : '';
+    final suffix = body.truncated
+        ? '\n\n[truncated at ${body.text?.length ?? 0} chars]'
+        : '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -723,7 +1231,8 @@ class _BodyView extends StatelessWidget {
           children: [
             _InfoChip(label: 'Kind', value: body.kind.name),
             _InfoChip(label: 'Bytes', value: '${body.byteLength}'),
-            if (body.contentType != null) _InfoChip(label: 'Type', value: body.contentType!),
+            if (body.contentType != null)
+              _InfoChip(label: 'Type', value: body.contentType!),
           ],
         ),
         const SizedBox(height: 12),
@@ -742,8 +1251,31 @@ class _HeadersTable extends StatelessWidget {
   Widget build(BuildContext context) {
     if (headers.isEmpty) return const _MutedText('No headers');
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final entry in headers.entries) _KeyValueRow(entry.key, entry.value),
+        for (final entry in headers.entries)
+          _KeyValueRow(entry.key, entry.value),
+      ],
+    );
+  }
+}
+
+class _QueryParameters extends StatelessWidget {
+  const _QueryParameters(this.parameters);
+
+  final Map<String, List<String>> parameters;
+
+  @override
+  Widget build(BuildContext context) {
+    if (parameters.isEmpty) {
+      return const _MutedText('No query parameters');
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final entry in parameters.entries)
+          _KeyValueRow(entry.key, entry.value.join(', ')),
       ],
     );
   }
@@ -757,15 +1289,37 @@ class _KeyValueRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.labelMedium),
-          const SizedBox(height: 3),
-          SelectableText(value),
-        ],
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final labelWidth = constraints.maxWidth < 360 ? 88.0 : 112.0;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: labelWidth,
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SelectableText(
+                  value,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        height: 1.35,
+                      ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -783,7 +1337,8 @@ class _CodeBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.65)),
+        border:
+            Border.all(color: scheme.outlineVariant.withValues(alpha: 0.65)),
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -892,7 +1447,8 @@ class _EmptyState extends StatelessWidget {
               color: Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(height: 12),
-            Text('No network calls captured', style: Theme.of(context).textTheme.titleMedium),
+            Text('No network calls captured',
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
             const _MutedText('Make a Dio request and it will appear here.'),
           ],
@@ -903,7 +1459,129 @@ class _EmptyState extends StatelessWidget {
 }
 
 Color _surfaceBase(BuildContext context) {
-  return Theme.of(context).colorScheme.surfaceContainerLowest;
+  return Theme.of(context).colorScheme.surface;
+}
+
+ThemeData _inspectorTheme(BuildContext context) {
+  final parent = Theme.of(context);
+  final isDark = parent.brightness == Brightness.dark;
+  final seed = isDark ? const Color(0xFF5FD39A) : const Color(0xFF138A5B);
+  final generated = ColorScheme.fromSeed(
+    seedColor: seed,
+    brightness: parent.brightness,
+  );
+  final scheme = generated.copyWith(
+    primary: seed,
+    surface: isDark ? const Color(0xFF101613) : const Color(0xFFF7F9F8),
+    surfaceContainerLowest:
+        isDark ? const Color(0xFF151D19) : const Color(0xFFFFFFFF),
+    surfaceContainerLow:
+        isDark ? const Color(0xFF19221E) : const Color(0xFFF1F4F2),
+    surfaceContainerHighest:
+        isDark ? const Color(0xFF26312C) : const Color(0xFFE9EEEB),
+    outlineVariant: isDark ? const Color(0xFF35433D) : const Color(0xFFDDE4E0),
+  );
+
+  final textTheme = parent.textTheme.apply(
+    bodyColor: scheme.onSurface,
+    displayColor: scheme.onSurface,
+  );
+
+  final base = ThemeData.from(
+    colorScheme: scheme,
+    textTheme: textTheme,
+    useMaterial3: true,
+  );
+
+  return base.copyWith(
+    platform: parent.platform,
+    visualDensity: parent.visualDensity,
+    colorScheme: scheme,
+    scaffoldBackgroundColor: scheme.surface,
+    textTheme: textTheme,
+    dividerColor: scheme.outlineVariant,
+    appBarTheme: AppBarTheme(
+      backgroundColor: scheme.surfaceContainerLowest,
+      foregroundColor: scheme.onSurface,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+      hintStyle: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: scheme.primary, width: 1.5),
+      ),
+    ),
+    chipTheme: parent.chipTheme.copyWith(
+      backgroundColor: Colors.transparent,
+      selectedColor: scheme.primaryContainer,
+      side: BorderSide(color: scheme.outlineVariant),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      labelStyle: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+    ),
+    tabBarTheme: parent.tabBarTheme.copyWith(
+      indicatorColor: scheme.primary,
+      labelColor: scheme.primary,
+      unselectedLabelColor: scheme.onSurfaceVariant,
+      dividerColor: scheme.outlineVariant,
+      labelStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+    ),
+  );
+}
+
+bool _isSlow(VigilHttpCall call) {
+  final duration = call.duration;
+  return duration != null && duration.inMilliseconds >= 1000;
+}
+
+Color _warningColor(BuildContext context) {
+  return Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFFFFC45B)
+      : const Color(0xFFB86B00);
+}
+
+String _formatDuration(Duration duration) {
+  final milliseconds = duration.inMilliseconds;
+  if (milliseconds < 1000) return '$milliseconds ms';
+  final seconds = milliseconds / 1000;
+  return '${seconds.toStringAsFixed(seconds >= 10 ? 1 : 2)} s';
+}
+
+String _pathOnly(Uri uri) {
+  return uri.path.isEmpty ? '/' : uri.path;
+}
+
+Future<void> _copyWithFeedback(
+  BuildContext context,
+  String value,
+  String message,
+) async {
+  await Clipboard.setData(ClipboardData(text: value));
+  if (!context.mounted) return;
+  ScaffoldMessenger.maybeOf(context)
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
 }
 
 Color _methodColor(String method) {

@@ -9,6 +9,8 @@ import {
 
 export interface VigilExpressConfig {
   enabled?: boolean;
+  includeTotalTiming?: boolean;
+  passThroughErrors?: boolean;
   debugKey?: string;
   maskHeaders?: string[];
   maskBodyFields?: string[];
@@ -63,6 +65,7 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
     const incomingTrace = req.header("traceparent");
     const traceparent = parseTraceparent(incomingTrace) ? incomingTrace! : generateTraceparent();
     const timings: ServerTimingMetric[] = [];
+    const requestStartedAt = process.hrtime.bigint();
 
     req.vigil = {
       traceparent,
@@ -83,6 +86,14 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
     };
 
     patchWriteHead(res, () => {
+      if (config.includeTotalTiming ?? true) {
+        const responseStartedAt = process.hrtime.bigint();
+        timings.unshift({
+          name: "total",
+          description: "Total server time",
+          duration: Number(responseStartedAt - requestStartedAt) / 1_000_000,
+        });
+      }
       if (timings.length > 0 && !res.headersSent) {
         const header = serializeServerTiming(timings, config.headerLimitBytes ?? 4096);
         if (header) res.setHeader("Server-Timing", header);
@@ -122,6 +133,11 @@ export function vigilErrorHandler(config: VigilExpressConfig = {}): ErrorRequest
           },
         ),
       );
+    }
+
+    if (config.passThroughErrors) {
+      next(error);
+      return;
     }
 
     res.status((typeof error.status === "number" && error.status) || 500).json({

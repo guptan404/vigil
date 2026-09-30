@@ -23,6 +23,20 @@ describe("@vigil/express", () => {
     expect(response.header["server-timing"]).toContain("db");
   });
 
+  it("emits total server timing without manual route instrumentation", async () => {
+    const app = express();
+    app.use(vigilMiddleware({ enabled: true }));
+    app.get("/ok", (_req, res) => {
+      res.json({ ok: true });
+    });
+
+    const response = await request(app).get("/ok");
+
+    expect(response.header["server-timing"]).toMatch(
+      /total;dur=\d+(?:\.\d+)?;desc="Total server time"/,
+    );
+  });
+
   it("gates debug payloads by key", async () => {
     const app = express();
     app.use(vigilMiddleware({ enabled: true }));
@@ -36,6 +50,30 @@ describe("@vigil/express", () => {
 
     expect(denied.header["vigil-debug"]).toBeUndefined();
     expect(allowed.header["vigil-debug"]).toBeTruthy();
+  });
+
+  it("can add gated debug data without replacing the app error response", async () => {
+    const app = express();
+    app.use(vigilMiddleware({ enabled: true }));
+    app.get("/error", () => {
+      const error = new Error("boom") as Error & { status: number };
+      error.status = 422;
+      throw error;
+    });
+    app.use(vigilErrorHandler({
+      enabled: true,
+      debugKey: "dev",
+      passThroughErrors: true,
+    }));
+    app.use((error: Error & { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(error.status ?? 500).json({ message: error.message });
+    });
+
+    const response = await request(app).get("/error").set("Vigil-Key", "dev");
+
+    expect(response.status).toBe(422);
+    expect(response.body).toEqual({ message: "boom" });
+    expect(response.header["vigil-debug"]).toBeTruthy();
   });
 
   it("keeps instrumented routes working in production no-op mode", async () => {
