@@ -9,7 +9,7 @@ reviewed commit rather than from a working tree containing unrelated changes.
    manifest to the final public repository and issue-tracker URLs.
 2. Create or select a verified pub.dev publisher and add at least one backup
    administrator.
-3. Confirm ownership of the `@vigil` npm organization. If that scope is not
+3. Confirm ownership of the `@vigiljs` npm organization. If that scope is not
    available, rename both npm packages and their internal dependency together.
 4. Configure npm trusted publishing from the public repository. Prefer OIDC to
    long-lived npm tokens; trusted public releases receive provenance metadata.
@@ -56,11 +56,11 @@ after `vigil_core`. The umbrella `vigil` package must be last.
 
 ## First npm release
 
-Publish `@vigil/core` before `@vigil/express`:
+Publish `@vigiljs/core` before `@vigiljs/express`:
 
 ```sh
-npm publish --workspace @vigil/core --access public
-npm publish --workspace @vigil/express --access public
+npm publish --workspace @vigiljs/core --access public
+npm publish --workspace @vigiljs/express --access public
 ```
 
 When publishing from a supported trusted CI workflow, npm generates provenance

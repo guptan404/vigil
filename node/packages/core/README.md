@@ -1,4 +1,4 @@
-# @vigil/core
+# @vigiljs/core
 
 Protocol helpers shared by Vigil Node integrations: W3C trace context,
 `Server-Timing` serialization, recursive field masking, and size-limited gated
@@ -7,7 +7,7 @@ debug payload encoding.
 ## Installation
 
 ```sh
-npm install @vigil/core
+npm install @vigiljs/core
 ```
 
 This package is ESM-only and requires Node.js 18 or newer.
@@ -20,7 +20,7 @@ import {
   generateTraceparent,
   parseTraceparent,
   serializeServerTiming,
-} from "@vigil/core";
+} from "@vigiljs/core";
 
 const traceparent = generateTraceparent();
 const parsed = parseTraceparent(traceparent);
@@ -39,5 +39,5 @@ const debug = encodeDebugPayload(
 `Vigil-Debug` response header. It masks configured field names recursively and
 truncates large payloads to stay under the configured header limit.
 
-See [`@vigil/express`](https://www.npmjs.com/package/@vigil/express) for the
+See [`@vigiljs/express`](https://www.npmjs.com/package/@vigiljs/express) for the
 ready-to-use Express integration.

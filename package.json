@@ -10,7 +10,7 @@
     "build": "npm --workspaces --if-present run build",
     "test": "npm --workspaces --if-present test",
     "check": "npm run build && npm test",
-    "pack:check": "npm pack --dry-run --workspace @vigil/core --workspace @vigil/express"
+    "pack:check": "npm pack --dry-run --workspace @vigiljs/core --workspace @vigiljs/express"
   },
   "engines": {
     "node": "^22.12.0 || >=24.0.0"

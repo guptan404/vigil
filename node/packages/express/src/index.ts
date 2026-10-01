@@ -5,7 +5,7 @@ import {
   parseTraceparent,
   serializeServerTiming,
   type ServerTimingMetric,
-} from "@vigil/core";
+} from "@vigiljs/core";
 
 /** Configuration shared by Vigil request and error middleware. */
 export interface VigilExpressConfig {

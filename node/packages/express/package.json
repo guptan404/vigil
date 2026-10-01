@@ -1,5 +1,5 @@
 {
-  "name": "@vigil/express",
+  "name": "@vigiljs/express",
   "version": "0.1.0",
   "license": "BSD-3-Clause",
   "description": "Express middleware for Vigil trace correlation, Server-Timing, gated diagnostics, and client-call ingestion.",
@@ -46,7 +46,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@vigil/core": "0.1.0"
+    "@vigiljs/core": "0.1.0"
   },
   "peerDependencies": {
     "express": ">=4.18.0 <6"

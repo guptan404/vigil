@@ -1,4 +1,4 @@
-# @vigil/express
+# @vigiljs/express
 
 Express middleware for correlating Vigil client calls, emitting total and
 custom `Server-Timing` metrics, returning gated error diagnostics, and receiving
@@ -7,7 +7,7 @@ optional client capture batches.
 ## Installation
 
 ```sh
-npm install @vigil/express
+npm install @vigiljs/express
 ```
 
 This package is ESM-only, requires Node.js 18 or newer, and supports Express
@@ -19,7 +19,7 @@ Mount `vigilMiddleware` before application routes:
 
 ```ts
 import express from "express";
-import { vigilMiddleware } from "@vigil/express";
+import { vigilMiddleware } from "@vigiljs/express";
 
 const app = express();
 
@@ -43,7 +43,7 @@ Mount `vigilErrorHandler` after routes. Use `passThroughErrors` if your existing
 handler must retain control of status codes and response bodies:
 
 ```ts
-import { vigilErrorHandler } from "@vigil/express";
+import { vigilErrorHandler } from "@vigiljs/express";
 
 app.use(vigilErrorHandler({
   enabled: process.env.NODE_ENV !== "production",
@@ -65,7 +65,7 @@ The ingest handler accepts JSON batches over HTTP `POST`; it is not a WebSocket
 endpoint.
 
 ```ts
-import { createMemoryVigilSink, vigilIngestHandler } from "@vigil/express";
+import { createMemoryVigilSink, vigilIngestHandler } from "@vigiljs/express";
 
 const sink = createMemoryVigilSink();
 

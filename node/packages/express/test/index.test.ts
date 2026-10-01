@@ -8,7 +8,7 @@ import {
   vigilMiddleware,
 } from "../src/index.js";
 
-describe("@vigil/express", () => {
+describe("@vigiljs/express", () => {
   it("emits Server-Timing and traceparent", async () => {
     const app = express();
     app.use(vigilMiddleware({ enabled: true }));

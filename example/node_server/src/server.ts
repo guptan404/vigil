@@ -4,7 +4,7 @@ import {
   vigilErrorHandler,
   vigilIngestHandler,
   vigilMiddleware,
-} from "@vigil/express";
+} from "@vigiljs/express";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4010);

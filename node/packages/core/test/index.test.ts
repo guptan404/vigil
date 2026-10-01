@@ -6,7 +6,7 @@ import {
   serializeServerTiming,
 } from "../src/index.js";
 
-describe("@vigil/core", () => {
+describe("@vigiljs/core", () => {
   it("generates and parses traceparent", () => {
     const traceparent = generateTraceparent();
     expect(parseTraceparent(traceparent)?.traceId).toHaveLength(32);
@@ -28,4 +28,3 @@ describe("@vigil/core", () => {
     expect(decoded.context.password).toBe("[redacted]");
   });
 });
-

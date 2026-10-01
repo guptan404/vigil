@@ -18,8 +18,8 @@ diagnostics without replacing your existing API responses.
 | `vigil_dio` | pub.dev | Dio request/response interceptor |
 | `vigil_ui` | pub.dev | Searchable Flutter inspector overlay |
 | `vigil_backend` | pub.dev | Optional batched upload of captured calls |
-| `@vigil/core` | npm | Node protocol, trace, timing, masking, and debug helpers |
-| `@vigil/express` | npm | Express middleware, error diagnostics, and ingest handler |
+| `@vigiljs/core` | npm | Node protocol, trace, timing, masking, and debug helpers |
+| `@vigiljs/express` | npm | Express middleware, error diagnostics, and ingest handler |
 
 ## Flutter quick start
 
@@ -75,7 +75,7 @@ an explicit launcher, or render `VigilInspector` from your own debug menu.
 Install the Express bridge:
 
 ```sh
-npm install @vigil/express
+npm install @vigiljs/express
 ```
 
 Mount request middleware before routes and the Vigil error middleware after
@@ -84,7 +84,7 @@ Vigil adds diagnostics and then delegates response formatting.
 
 ```ts
 import express from "express";
-import { vigilErrorHandler, vigilMiddleware } from "@vigil/express";
+import { vigilErrorHandler, vigilMiddleware } from "@vigiljs/express";
 
 const app = express();
 
@@ -127,7 +127,7 @@ final connection = VigilBackendConnection.connect(
 ```
 
 ```ts
-import { createMemoryVigilSink, vigilIngestHandler } from "@vigil/express";
+import { createMemoryVigilSink, vigilIngestHandler } from "@vigiljs/express";
 
 const sink = createMemoryVigilSink();
 
@@ -184,7 +184,7 @@ The full first-release and subsequent-release procedure is documented in
 
 The first pub.dev package releases must be published in dependency order:
 `vigil_core`, then `vigil_backend` / `vigil_dio` / `vigil_ui`, then `vigil`.
-Scoped npm packages require access to the `@vigil` npm organization and public
+Scoped npm packages require access to the `@vigiljs` npm organization and public
 visibility. Use npm trusted publishing when possible so releases receive
 provenance attestations.
 
