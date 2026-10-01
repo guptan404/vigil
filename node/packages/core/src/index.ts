@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+/** Parsed fields from a W3C `traceparent` header. */
 export interface TraceContext {
   version: string;
   traceId: string;
@@ -7,12 +8,14 @@ export interface TraceContext {
   flags: string;
 }
 
+/** One metric serialized into the HTTP `Server-Timing` header. */
 export interface ServerTimingMetric {
   name: string;
   duration?: number;
   description?: string;
 }
 
+/** Backend diagnostics encoded into a gated `Vigil-Debug` header. */
 export interface VigilDebugPayload {
   error?: string;
   stack?: string;
@@ -20,15 +23,18 @@ export interface VigilDebugPayload {
   truncated?: boolean;
 }
 
+/** Size and privacy controls for debug payload encoding. */
 export interface DebugEncodeOptions {
   maxBytes?: number;
   maskFields?: string[];
 }
 
+/** Generates a sampled W3C `traceparent` header value. */
 export function generateTraceparent(): string {
   return `00-${randomBytes(16).toString("hex")}-${randomBytes(8).toString("hex")}-01`;
 }
 
+/** Parses a W3C `traceparent` value, returning `null` when invalid. */
 export function parseTraceparent(header: string | undefined): TraceContext | null {
   if (!header) return null;
   const parts = header.trim().split("-");
@@ -49,6 +55,7 @@ export function parseTraceparent(header: string | undefined): TraceContext | nul
   return { version, traceId, parentId, flags };
 }
 
+/** Serializes metrics into a size-limited `Server-Timing` header value. */
 export function serializeServerTiming(
   metrics: ServerTimingMetric[],
   maxBytes = 4096,
@@ -71,6 +78,7 @@ export function serializeServerTiming(
   return parts.join(", ");
 }
 
+/** Masks and base64url-encodes a size-limited Vigil debug payload. */
 export function encodeDebugPayload(
   payload: VigilDebugPayload,
   options: DebugEncodeOptions = {},
@@ -94,6 +102,7 @@ export function encodeDebugPayload(
   return candidate;
 }
 
+/** Recursively redacts object fields using case-insensitive names. */
 export function maskObject(value: unknown, fields: Set<string>): unknown {
   if (Array.isArray(value)) return value.map((item) => maskObject(item, fields));
   if (!value || typeof value !== "object") return value;
@@ -115,4 +124,3 @@ function sanitizeMetricName(name: string): string {
 function escapeDescription(description: string): string {
   return description.replace(/["\\]/g, "_").replace(/[\r\n]/g, " ");
 }
-

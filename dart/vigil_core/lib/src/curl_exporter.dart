@@ -1,6 +1,10 @@
 import 'vigil_call.dart';
 
+/// Converts captured calls into shell-safe cURL commands.
 class VigilCurlExporter {
+  const VigilCurlExporter._();
+
+  /// Returns a cURL command for [call] using its masked captured values.
   static String export(VigilHttpCall call) {
     final parts = <String>['curl', '-X', _quote(call.request.method)];
 

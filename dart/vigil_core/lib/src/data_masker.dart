@@ -1,4 +1,8 @@
+/// Privacy helpers used before HTTP data is retained or exported.
 class VigilDataMasker {
+  const VigilDataMasker._();
+
+  /// Replaces case-insensitive header names in [maskedNames] with a marker.
   static Map<String, String> maskHeaders(
     Map<String, Object?> headers,
     Set<String> maskedNames,
@@ -11,6 +15,7 @@ class VigilDataMasker {
     return masked;
   }
 
+  /// Recursively masks map fields whose lowercase names are in [maskedFields].
   static Object? maskJson(Object? value, Set<String> maskedFields) {
     if (value is Map) {
       return value.map((key, child) {

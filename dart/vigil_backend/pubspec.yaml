@@ -1,16 +1,23 @@
 name: vigil_backend
-description: Backend upload connector for Vigil captured network calls.
+description: Optional HTTP uploader that batches locally captured Vigil network calls and sends them to a protected backend ingest endpoint.
 version: 0.1.0
-publish_to: "none"
-repository: https://example.com/vigil
+resolution: workspace
+repository: https://github.com/guptan404/vigil
+issue_tracker: https://github.com/guptan404/vigil/issues
+
+topics:
+  - network-monitoring
+  - http
+  - debugging
+  - observability
+  - developer-tools
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=3.6.0 <4.0.0"
 
 dependencies:
   http: ^1.6.0
-  vigil_core:
-    path: ../vigil_core
+  vigil_core: ^0.1.0
 
 dev_dependencies:
   lints: ^6.0.0

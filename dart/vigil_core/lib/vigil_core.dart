@@ -1,3 +1,6 @@
+/// Core capture, privacy, tracing, and export primitives for Vigil.
+library;
+
 export 'src/body_summary.dart';
 export 'src/curl_exporter.dart';
 export 'src/data_masker.dart';

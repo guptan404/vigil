@@ -7,7 +7,10 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 import 'vigil_inspector.dart';
 
+/// Places the Vigil inspector above an application and optionally opens it by
+/// shake gesture or floating action button.
 class VigilOverlay extends StatefulWidget {
+  /// Creates a Vigil inspector overlay around [child].
   const VigilOverlay({
     super.key,
     required this.child,
@@ -19,12 +22,25 @@ class VigilOverlay extends StatefulWidget {
     this.shakeEvents,
   });
 
+  /// Application content rendered below the inspector.
   final Widget child;
+
+  /// Whether inspector launch behavior is active.
   final bool enabled;
+
+  /// Whether device shake gestures open the inspector.
   final bool enableShake;
+
+  /// Whether to render an on-screen inspector launcher.
   final bool showFloatingButton;
+
+  /// Minimum user-acceleration magnitude that counts as a shake.
   final double shakeThreshold;
+
+  /// Minimum interval accepted between shake gestures.
   final Duration shakeCooldown;
+
+  /// Optional acceleration stream, primarily useful for tests or custom input.
   final Stream<UserAccelerometerEvent>? shakeEvents;
 
   @override

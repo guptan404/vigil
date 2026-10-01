@@ -1,20 +1,26 @@
 {
   "name": "vigil-workspace",
   "private": true,
+  "license": "BSD-3-Clause",
   "workspaces": [
     "node/packages/*",
     "example/node_server"
   ],
   "scripts": {
     "build": "npm --workspaces --if-present run build",
-    "test": "npm --workspaces --if-present test"
+    "test": "npm --workspaces --if-present test",
+    "check": "npm run build && npm test",
+    "pack:check": "npm pack --dry-run --workspace @vigil/core --workspace @vigil/express"
+  },
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^24.0.0",
-    "@types/supertest": "^6.0.3",
+    "@types/supertest": "^7.2.1",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0",
-    "supertest": "^7.1.0"
+    "vitest": "^5.0.3",
+    "supertest": "^7.3.0"
   }
 }

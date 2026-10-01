@@ -7,6 +7,7 @@ import {
   type ServerTimingMetric,
 } from "@vigil/core";
 
+/** Configuration shared by Vigil request and error middleware. */
 export interface VigilExpressConfig {
   enabled?: boolean;
   includeTotalTiming?: boolean;
@@ -17,6 +18,7 @@ export interface VigilExpressConfig {
   headerLimitBytes?: number;
 }
 
+/** Configuration for the optional client-call ingest route. */
 export interface VigilIngestConfig {
   enabled?: boolean;
   ingestKey?: string;
@@ -24,6 +26,7 @@ export interface VigilIngestConfig {
   onBatch?: (batch: VigilIngestBatch, req: Request) => Promise<void> | void;
 }
 
+/** Version 1 batch accepted by the Vigil ingest handler. */
 export interface VigilIngestBatch {
   version: number;
   sentAt?: string;
@@ -31,8 +34,10 @@ export interface VigilIngestBatch {
   calls: VigilIngestCall[];
 }
 
+/** Serialized client call retained by an ingest destination. */
 export type VigilIngestCall = Record<string, unknown>;
 
+/** Bounded in-memory ingest destination for development and tests. */
 export interface VigilMemorySink {
   batches: VigilIngestBatch[];
   calls: VigilIngestCall[];
@@ -40,6 +45,7 @@ export interface VigilMemorySink {
   clear(): void;
 }
 
+/** Per-request trace and timing API attached to Express requests. */
 export interface VigilRequestContext {
   traceparent: string;
   timings: ServerTimingMetric[];
@@ -54,6 +60,11 @@ declare global {
   }
 }
 
+/**
+ * Adds trace correlation and `Server-Timing` response headers.
+ *
+ * Mount this middleware before application routes.
+ */
 export function vigilMiddleware(config: VigilExpressConfig = {}) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!isEnabled(config)) {
@@ -105,6 +116,12 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
   };
 }
 
+/**
+ * Adds gated `Vigil-Debug` details to error responses.
+ *
+ * Mount this after routes and before an existing error handler when
+ * `passThroughErrors` is enabled.
+ */
 export function vigilErrorHandler(config: VigilExpressConfig = {}): ErrorRequestHandler {
   return (error, req, res, next) => {
     if (res.headersSent) {
@@ -147,6 +164,7 @@ export function vigilErrorHandler(config: VigilExpressConfig = {}): ErrorRequest
   };
 }
 
+/** Creates an Express handler for version 1 Vigil client-call batches. */
 export function vigilIngestHandler(config: VigilIngestConfig = {}): RequestHandler {
   return async (req, res, next) => {
     try {
@@ -183,7 +201,15 @@ export function vigilIngestHandler(config: VigilIngestConfig = {}): RequestHandl
   };
 }
 
+/** Creates a bounded in-memory ingest destination for development and tests. */
 export function createMemoryVigilSink(maxBatches = 100, maxCalls = 1000): VigilMemorySink {
+  if (!Number.isInteger(maxBatches) || maxBatches <= 0) {
+    throw new RangeError("maxBatches must be a positive integer");
+  }
+  if (!Number.isInteger(maxCalls) || maxCalls <= 0) {
+    throw new RangeError("maxCalls must be a positive integer");
+  }
+
   const batches: VigilIngestBatch[] = [];
   const calls: VigilIngestCall[] = [];
 

@@ -1,15 +1,51 @@
 {
   "name": "@vigil/core",
   "version": "0.1.0",
+  "license": "BSD-3-Clause",
+  "description": "Trace context, Server-Timing, masking, and gated debug payload utilities for Vigil.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "vigil",
+    "observability",
+    "server-timing",
+    "traceparent",
+    "debugging"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guptan404/vigil.git",
+    "directory": "node/packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/guptan404/vigil/issues"
+  },
+  "homepage": "https://github.com/guptan404/vigil#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
-    "vitest": "^3.2.0"
+    "vitest": "^5.0.3"
   }
 }
-

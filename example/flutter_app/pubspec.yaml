@@ -2,9 +2,10 @@ name: vigil_flutter_example
 description: Example Flutter app for the Vigil vertical slice.
 publish_to: "none"
 version: 0.1.0
+resolution: workspace
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=3.6.0 <4.0.0"
 
 dependencies:
   flutter:

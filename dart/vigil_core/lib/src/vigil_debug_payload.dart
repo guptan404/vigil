@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+/// Gated backend error details decoded from a `Vigil-Debug` header.
 class VigilDebugPayload {
+  /// Creates a decoded debug payload.
   const VigilDebugPayload({
     this.error,
     this.stack,
@@ -8,11 +10,19 @@ class VigilDebugPayload {
     this.truncated = false,
   });
 
+  /// Backend error message, when supplied.
   final String? error;
+
+  /// Backend stack trace, when supplied.
   final String? stack;
+
+  /// Additional backend-provided diagnostic context.
   final Map<String, Object?> context;
+
+  /// Whether the backend shortened the payload to fit its header limit.
   final bool truncated;
 
+  /// Converts this payload into the Vigil ingest wire representation.
   Map<String, Object?> toJson() => {
         'error': error,
         'stack': stack,
@@ -20,6 +30,7 @@ class VigilDebugPayload {
         'truncated': truncated,
       };
 
+  /// Decodes a base64url `Vigil-Debug` header, returning `null` if invalid.
   static VigilDebugPayload? tryParse(String? header) {
     if (header == null || header.trim().isEmpty) return null;
     try {

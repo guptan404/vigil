@@ -4,9 +4,30 @@ import 'dart:typed_data';
 import 'data_masker.dart';
 import 'vigil_config.dart';
 
-enum VigilBodyKind { empty, json, text, binary, oversized, unavailable }
+/// The representation retained for a captured request or response body.
+enum VigilBodyKind {
+  /// No body was supplied.
+  empty,
 
+  /// JSON-compatible text was captured.
+  json,
+
+  /// Plain text was captured.
+  text,
+
+  /// Binary data was detected and its contents were not retained.
+  binary,
+
+  /// The body exceeded the configured limit without displayable content.
+  oversized,
+
+  /// The body could not or should not be captured.
+  unavailable,
+}
+
+/// A bounded, display-safe description of an HTTP body.
 class VigilBodySummary {
+  /// Creates an immutable body summary.
   const VigilBodySummary({
     required this.kind,
     this.text,
@@ -15,18 +36,33 @@ class VigilBodySummary {
     this.contentType,
   });
 
+  /// The retained representation.
   final VigilBodyKind kind;
+
+  /// Captured text, when [kind] is [VigilBodyKind.json] or
+  /// [VigilBodyKind.text].
   final String? text;
+
+  /// Original body size in bytes when known.
   final int byteLength;
+
+  /// Whether captured text was shortened to the configured byte limit.
   final bool truncated;
+
+  /// Normalized HTTP content type when one was supplied.
   final String? contentType;
 
+  /// A summary representing an absent body.
   static const empty = VigilBodySummary(kind: VigilBodyKind.empty);
+
+  /// A summary representing a body that was intentionally not inspected.
   static const unavailable = VigilBodySummary(kind: VigilBodyKind.unavailable);
 
+  /// Whether [text] can be displayed by an inspector.
   bool get isDisplayable =>
       kind == VigilBodyKind.json || kind == VigilBodyKind.text;
 
+  /// Converts this summary into the Vigil ingest wire representation.
   Map<String, Object?> toJson() => {
         'kind': kind.name,
         'text': text,
@@ -35,6 +71,7 @@ class VigilBodySummary {
         'contentType': contentType,
       };
 
+  /// Produces a masked and size-limited summary of [value].
   static VigilBodySummary summarize(
     Object? value, {
     required Map<String, String> headers,

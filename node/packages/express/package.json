@@ -1,12 +1,49 @@
 {
   "name": "@vigil/express",
   "version": "0.1.0",
+  "license": "BSD-3-Clause",
+  "description": "Express middleware for Vigil trace correlation, Server-Timing, gated diagnostics, and client-call ingestion.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "vigil",
+    "express",
+    "observability",
+    "server-timing",
+    "debugging"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guptan404/vigil.git",
+    "directory": "node/packages/express"
+  },
+  "bugs": {
+    "url": "https://github.com/guptan404/vigil/issues"
+  },
+  "homepage": "https://github.com/guptan404/vigil#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@vigil/core": "0.1.0"
@@ -16,10 +53,9 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/supertest": "^6.0.3",
-    "express": "^5.1.0",
-    "supertest": "^7.1.0",
-    "vitest": "^3.2.0"
+    "@types/supertest": "^7.2.1",
+    "express": "^5.2.1",
+    "supertest": "^7.3.0",
+    "vitest": "^5.0.3"
   }
 }
-

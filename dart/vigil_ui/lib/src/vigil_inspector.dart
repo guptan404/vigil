@@ -4,10 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vigil_core/vigil_core.dart';
 
+/// Searchable Flutter interface for requests captured by Vigil.
 class VigilInspector extends StatefulWidget {
+  /// Creates an inspector for [vigil] or [Vigil.instance].
   const VigilInspector({super.key, this.vigil, this.onClose});
 
+  /// Recorder whose calls are displayed.
   final Vigil? vigil;
+
+  /// Optional callback exposed as a close action in the app bar.
   final VoidCallback? onClose;
 
   @override

@@ -1,4 +1,6 @@
 .DS_Store
+.idea/
+*.iml
 
 # Dart / Flutter
 .dart_tool/
@@ -6,7 +8,10 @@
 .flutter-plugins
 .flutter-plugins-dependencies
 build/
-pubspec.lock
+**/doc/api/
+**/pubspec.lock
+!/pubspec.lock
+pubspec_overrides.yaml
 
 # Node
 node_modules/
@@ -14,4 +19,3 @@ dist/
 
 # Logs
 *.log
-

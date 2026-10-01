@@ -124,6 +124,11 @@ describe("@vigil/express", () => {
     expect(sink.calls[0].id).toBe("call-1");
   });
 
+  it("rejects invalid memory sink limits", () => {
+    expect(() => createMemoryVigilSink(0, 100)).toThrow(RangeError);
+    expect(() => createMemoryVigilSink(100, -1)).toThrow(RangeError);
+  });
+
   it("rejects invalid and oversized ingest batches", async () => {
     const app = express();
     app.use(express.json());

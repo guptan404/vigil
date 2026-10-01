@@ -3,7 +3,12 @@ import 'package:vigil_core/vigil_core.dart';
 
 const _callIdExtraKey = 'vigil.callId';
 
+/// Captures Dio request lifecycles in a [Vigil] recorder.
+///
+/// The interceptor also propagates `traceparent` and an optional `Vigil-Key`,
+/// then parses `Server-Timing` and `Vigil-Debug` response headers.
 class VigilDioInterceptor extends Interceptor {
+  /// Creates an interceptor using [vigil] or [Vigil.instance].
   VigilDioInterceptor({Vigil? vigil}) : _vigil = vigil ?? Vigil.instance;
 
   final Vigil _vigil;

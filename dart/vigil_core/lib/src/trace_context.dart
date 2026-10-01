@@ -1,6 +1,8 @@
 import 'dart:math';
 
+/// A W3C trace context propagated through the `traceparent` HTTP header.
 class VigilTraceContext {
+  /// Creates a trace context from validated hexadecimal components.
   const VigilTraceContext({
     required this.traceId,
     required this.parentId,
@@ -8,13 +10,22 @@ class VigilTraceContext {
     this.flags = '01',
   });
 
+  /// W3C trace context version.
   final String version;
+
+  /// Thirty-two-character trace identifier.
   final String traceId;
+
+  /// Sixteen-character parent identifier.
   final String parentId;
+
+  /// Two-character trace flags.
   final String flags;
 
+  /// Serializes this context as a `traceparent` header value.
   String toHeader() => '$version-$traceId-$parentId-$flags';
 
+  /// Generates a new cryptographically secure trace and parent identifier.
   static VigilTraceContext generate({Random? random}) {
     final rng = random ?? Random.secure();
     return VigilTraceContext(
@@ -23,6 +34,7 @@ class VigilTraceContext {
     );
   }
 
+  /// Parses a W3C `traceparent` value, or returns `null` when it is invalid.
   static VigilTraceContext? tryParse(String? header) {
     if (header == null) return null;
     final parts = header.trim().split('-');

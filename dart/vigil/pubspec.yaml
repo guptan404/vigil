@@ -1,24 +1,28 @@
 name: vigil
-description: Umbrella package for Vigil core, Dio interceptor, and Flutter UI.
+description: Flutter-first network inspection toolkit combining request capture, Dio interception, an in-app inspector, and optional backend upload.
 version: 0.1.0
-publish_to: "none"
-repository: https://example.com/vigil
+resolution: workspace
+repository: https://github.com/guptan404/vigil
+issue_tracker: https://github.com/guptan404/vigil/issues
+
+topics:
+  - flutter
+  - http
+  - network-monitoring
+  - debugging
+  - developer-tools
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
-  flutter: ">=3.22.0"
+  sdk: ">=3.6.0 <4.0.0"
+  flutter: ">=3.27.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  vigil_core:
-    path: ../vigil_core
-  vigil_backend:
-    path: ../vigil_backend
-  vigil_dio:
-    path: ../vigil_dio
-  vigil_ui:
-    path: ../vigil_ui
+  vigil_backend: ^0.1.0
+  vigil_core: ^0.1.0
+  vigil_dio: ^0.1.0
+  vigil_ui: ^0.1.0
 
 dev_dependencies:
   flutter_lints: ^6.0.0

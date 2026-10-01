@@ -7,7 +7,11 @@ import 'package:vigil_core/vigil_core.dart';
 import 'vigil_backend_config.dart';
 import 'vigil_backend_payload.dart';
 
+/// Subscribes to Vigil events and uploads calls in bounded HTTP batches.
 class VigilBackendConnection {
+  /// Creates a stopped backend connection.
+  ///
+  /// Call [start] manually, or use [connect] to create and start in one step.
   VigilBackendConnection({
     required VigilBackendConfig config,
     Vigil? vigil,
@@ -28,10 +32,16 @@ class VigilBackendConnection {
   var _isFlushing = false;
   var _isDisposed = false;
 
+  /// Whether the connection currently has an active Vigil event subscription.
   bool get isRunning => _subscription != null;
+
+  /// Whether this connection has been disposed.
   bool get isDisposed => _isDisposed;
+
+  /// Number of calls currently waiting for a successful upload.
   int get queuedCount => _queue.length;
 
+  /// Creates and immediately starts a backend connection.
   static VigilBackendConnection connect({
     required VigilBackendConfig config,
     Vigil? vigil,
@@ -46,6 +56,7 @@ class VigilBackendConnection {
     return connection;
   }
 
+  /// Starts listening for captured calls when upload is enabled.
   void start() {
     if (_isDisposed || !_config.enabled || _subscription != null) return;
 
@@ -57,11 +68,11 @@ class VigilBackendConnection {
     }
   }
 
+  /// Attempts to upload the next batch.
+  ///
+  /// Failed and non-2xx batches remain queued for a future attempt.
   Future<void> flush() async {
-    if (_isDisposed ||
-        !_config.enabled ||
-        _isFlushing ||
-        _queue.isEmpty) {
+    if (_isDisposed || !_config.enabled || _isFlushing || _queue.isEmpty) {
       return;
     }
 
@@ -91,6 +102,10 @@ class VigilBackendConnection {
     }
   }
 
+  /// Stops capture upload and releases owned resources.
+  ///
+  /// When [flushPending] is true, one final batch is attempted before the
+  /// internally owned HTTP client is closed.
   Future<void> dispose({bool flushPending = true}) async {
     if (_isDisposed) return;
     _isDisposed = true;

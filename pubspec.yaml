@@ -1,0 +1,30 @@
+name: vigil_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+
+workspace:
+  - dart/vigil_core
+  - dart/vigil_backend
+  - dart/vigil_dio
+  - dart/vigil_ui
+  - dart/vigil
+  - example/flutter_app
+
+dev_dependencies:
+  melos: ^8.9.0
+
+melos:
+  scripts:
+    format:
+      run: dart format --output=none --set-exit-if-changed .
+      description: Verify Dart formatting across the workspace.
+    analyze:
+      run: dart analyze
+      description: Analyze the complete Dart and Flutter workspace.
+    test:
+      run: >-
+        melos exec --concurrency=1 --dir-exists=test --
+        "if grep -q 'sdk: flutter' pubspec.yaml; then flutter test; else dart test; fi"
+      description: Run Dart and Flutter package tests.

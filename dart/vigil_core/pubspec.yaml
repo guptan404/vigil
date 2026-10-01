@@ -1,11 +1,19 @@
 name: vigil_core
-description: Core models, storage, parsers, and export helpers for Vigil.
+description: Core request models, privacy masking, trace context, timing parsers, and cURL export primitives for the Vigil network inspector.
 version: 0.1.0
-publish_to: "none"
-repository: https://example.com/vigil
+resolution: workspace
+repository: https://github.com/guptan404/vigil
+issue_tracker: https://github.com/guptan404/vigil/issues
+
+topics:
+  - network-monitoring
+  - http
+  - debugging
+  - observability
+  - developer-tools
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=3.6.0 <4.0.0"
 
 dev_dependencies:
   lints: ^6.0.0

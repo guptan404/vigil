@@ -1,14 +1,22 @@
+/// A metric parsed from an HTTP `Server-Timing` response header.
 class VigilServerTiming {
+  /// Creates a server timing metric.
   const VigilServerTiming({
     required this.name,
     this.duration,
     this.description,
   });
 
+  /// Metric token, such as `db` or `total`.
   final String name;
+
+  /// Duration in milliseconds, when supplied by the server.
   final double? duration;
+
+  /// Human-readable metric description, when supplied by the server.
   final String? description;
 
+  /// Converts this metric into the Vigil ingest wire representation.
   Map<String, Object?> toJson() => {
         'name': name,
         'duration': duration,
@@ -16,7 +24,11 @@ class VigilServerTiming {
       };
 }
 
+/// Parses metrics from the standard HTTP `Server-Timing` header.
 class VigilServerTimingParser {
+  const VigilServerTimingParser._();
+
+  /// Parses [header], returning an empty list for absent or invalid entries.
   static List<VigilServerTiming> parse(String? header) {
     if (header == null || header.trim().isEmpty) return const [];
     return _splitHeader(
