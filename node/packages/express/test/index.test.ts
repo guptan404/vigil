@@ -1,4 +1,5 @@
 import express from "express";
+import { Buffer } from "node:buffer";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import {
@@ -52,6 +53,26 @@ describe("@vigiljs/express", () => {
     expect(allowed.header["vigil-debug"]).toBeTruthy();
   });
 
+  it("emits gated diagnostics for direct error responses", async () => {
+    const app = express();
+    app.use(vigilMiddleware({ enabled: true, debugKey: "dev" }));
+    app.get("/unavailable", (_req, res) => {
+      res.status(503).json({ message: "Service unavailable" });
+    });
+
+    const denied = await request(app).get("/unavailable");
+    const allowed = await request(app).get("/unavailable").set("Vigil-Key", "dev");
+    const payload = JSON.parse(
+      Buffer.from(allowed.header["vigil-debug"], "base64url").toString("utf8"),
+    );
+
+    expect(denied.header["vigil-debug"]).toBeUndefined();
+    expect(allowed.body).toEqual({ message: "Service unavailable" });
+    expect(payload.error).toBe("HTTP 503");
+    expect(payload.context.statusCode).toBe(503);
+    expect(payload.context.traceparent).toBe(allowed.header.traceparent);
+  });
+
   it("can add gated debug data without replacing the app error response", async () => {
     const app = express();
     app.use(vigilMiddleware({ enabled: true }));
@@ -74,6 +95,10 @@ describe("@vigiljs/express", () => {
     expect(response.status).toBe(422);
     expect(response.body).toEqual({ message: "boom" });
     expect(response.header["vigil-debug"]).toBeTruthy();
+    const payload = JSON.parse(
+      Buffer.from(response.header["vigil-debug"], "base64url").toString("utf8"),
+    );
+    expect(payload.error).toBe("boom");
   });
 
   it("keeps instrumented routes working in production no-op mode", async () => {

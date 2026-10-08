@@ -25,6 +25,7 @@ void main() {
   Vigil.instance.init(
     config: const VigilConfig(
       enabled: kDebugMode,
+      debugKey: String.fromEnvironment('VIGIL_DEBUG_KEY'),
       maskBodyFields: {'password', 'token', 'secret'},
     ),
   );
@@ -49,6 +50,9 @@ class App extends StatelessWidget {
 
 The inspector opens on shake. Set `showFloatingButton: true` when an on-screen
 launcher is more convenient.
+Pass the same development key to your Express `debugKey` setting and the
+Flutter `VIGIL_DEBUG_KEY` Dart define to see gated server diagnostics. The Debug
+tab also shows captured client failure details when no server payload arrives.
 
 ## Optional backend upload
 

@@ -25,6 +25,7 @@ const app = express();
 
 app.use(vigilMiddleware({
   enabled: process.env.NODE_ENV !== "production",
+  debugKey: process.env.VIGIL_DEBUG_KEY,
 }));
 
 app.get("/report", async (req, res) => {
@@ -55,9 +56,11 @@ app.use(vigilErrorHandler({
 app.use(existingErrorHandler);
 ```
 
-The `Vigil-Debug` header is emitted only for errors when the incoming
-`Vigil-Key` exactly matches `debugKey`. Do not enable stack-trace diagnostics on
-public production APIs.
+With a matching `Vigil-Key`, direct 4xx/5xx responses include a status and
+trace diagnostic. Errors reaching `vigilErrorHandler` also include the error
+message and stack. No debug header is emitted when the incoming key does not
+exactly match `debugKey`. Do not enable stack-trace diagnostics on public
+production APIs.
 
 ## Client-call ingest
 

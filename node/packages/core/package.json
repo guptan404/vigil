@@ -1,6 +1,6 @@
 {
   "name": "@vigiljs/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "BSD-3-Clause",
   "description": "Trace context, Server-Timing, masking, and gated debug payload utilities for Vigil.",
   "type": "module",

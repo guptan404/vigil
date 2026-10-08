@@ -44,6 +44,7 @@ void main() {
   Vigil.instance.init(
     config: const VigilConfig(
       enabled: kDebugMode,
+      debugKey: String.fromEnvironment('VIGIL_DEBUG_KEY'),
       maskHeaders: {'authorization', 'cookie', 'set-cookie', 'vigil-key'},
       maskBodyFields: {'password', 'token', 'secret'},
     ),
@@ -90,6 +91,7 @@ const app = express();
 
 app.use(vigilMiddleware({
   enabled: process.env.NODE_ENV !== "production",
+  debugKey: process.env.VIGIL_DEBUG_KEY,
 }));
 
 app.get("/report", async (req, res) => {
@@ -108,6 +110,13 @@ app.use(existingErrorHandler);
 
 The middleware always emits a total server duration when enabled. Timed work
 added with `req.vigil.time()` appears as additional `Server-Timing` metrics.
+Set the same development key in the Flutter `VIGIL_DEBUG_KEY` Dart define and
+the server `VIGIL_DEBUG_KEY` environment variable to receive gated details.
+For example, run Flutter with `--dart-define=VIGIL_DEBUG_KEY=<development-key>`.
+With a matching `Vigil-Key`, direct 4xx/5xx responses include a status and
+trace diagnostic. Errors passed through `vigilErrorHandler` also include the
+server error and stack. The Debug tab shows captured client failure details
+even when a network failure prevents any server response.
 
 For Flutter Web, expose `Server-Timing`, `traceparent`, and `Vigil-Debug` in
 your CORS configuration or browsers will hide them from Dio.

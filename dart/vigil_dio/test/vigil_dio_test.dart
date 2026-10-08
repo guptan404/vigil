@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -32,11 +33,18 @@ void main() {
   });
 
   test('captures error responses', () async {
-    final vigil = Vigil.instance..init();
+    final vigil = Vigil.instance
+      ..init(config: const VigilConfig(debugKey: 'dev'));
+    final debugHeader = base64Url.encode(
+      utf8.encode('{"error":"backend failed","context":{"statusCode":500}}'),
+    );
     final dio = Dio()
       ..interceptors.add(VigilDioInterceptor(vigil: vigil))
       ..httpClientAdapter = _Adapter((request) async {
-        return ResponseBody.fromString('boom', 500);
+        expect(request.headers['Vigil-Key'], 'dev');
+        return ResponseBody.fromString('boom', 500, headers: {
+          'ViGiL-DeBuG': [debugHeader],
+        });
       });
 
     await expectLater(
@@ -46,6 +54,7 @@ void main() {
 
     expect(vigil.calls.single.state, VigilCallState.failed);
     expect(vigil.calls.single.response!.statusCode, 500);
+    expect(vigil.calls.single.response!.serverDebug?.error, 'backend failed');
   });
 
   test('disabled mode is a no-op', () async {

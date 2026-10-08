@@ -1,6 +1,6 @@
 name: vigil
 description: Flutter-first network inspection toolkit combining request capture, Dio interception, an in-app inspector, and optional backend upload.
-version: 0.1.0
+version: 0.1.1
 resolution: workspace
 repository: https://github.com/guptan404/vigil
 issue_tracker: https://github.com/guptan404/vigil/issues
@@ -19,10 +19,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  vigil_backend: ^0.1.0
-  vigil_core: ^0.1.0
-  vigil_dio: ^0.1.0
-  vigil_ui: ^0.1.0
+  vigil_backend: ^0.1.1
+  vigil_core: ^0.1.1
+  vigil_dio: ^0.1.1
+  vigil_ui: ^0.1.1
 
 dev_dependencies:
   flutter_lints: ^6.0.0

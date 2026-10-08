@@ -1,6 +1,6 @@
 name: vigil_ui
 description: A Flutter network inspector overlay with request search, filters, cURL export, timing metrics, and shake-to-open support.
-version: 0.1.0
+version: 0.1.1
 resolution: workspace
 repository: https://github.com/guptan404/vigil
 issue_tracker: https://github.com/guptan404/vigil/issues
@@ -20,7 +20,8 @@ dependencies:
   flutter:
     sdk: flutter
   sensors_plus: ^6.1.2
-  vigil_core: ^0.1.0
+  share_plus: ^11.1.0
+  vigil_core: ^0.1.1
 
 dev_dependencies:
   flutter_test:

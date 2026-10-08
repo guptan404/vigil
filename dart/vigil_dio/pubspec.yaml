@@ -1,6 +1,6 @@
 name: vigil_dio
 description: A Dio interceptor that captures requests, responses, failures, timing metrics, trace context, and gated backend diagnostics for Vigil.
-version: 0.1.0
+version: 0.1.1
 resolution: workspace
 repository: https://github.com/guptan404/vigil
 issue_tracker: https://github.com/guptan404/vigil/issues
@@ -17,7 +17,7 @@ environment:
 
 dependencies:
   dio: ^5.9.0
-  vigil_core: ^0.1.0
+  vigil_core: ^0.1.1
 
 dev_dependencies:
   flutter_test:

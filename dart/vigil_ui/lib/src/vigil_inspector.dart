@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:vigil_core/vigil_core.dart';
 
 /// Searchable Flutter interface for requests captured by Vigil.
@@ -656,6 +657,13 @@ class _CallDetailPage extends StatelessWidget {
           appBar: AppBar(
             title: const Text('Request details'),
             actions: [
+              Builder(
+                builder: (shareContext) => IconButton(
+                  tooltip: 'Share lifecycle',
+                  onPressed: () => _shareLifecycle(shareContext, call),
+                  icon: const Icon(Icons.share_rounded),
+                ),
+              ),
               IconButton(
                 tooltip: 'Copy cURL',
                 onPressed: () => _copyWithFeedback(
@@ -806,6 +814,22 @@ class _DetailHeader extends StatelessWidget {
                   icon: const Icon(Icons.terminal_rounded, size: 18),
                   label: const Text('Copy cURL'),
                 ),
+                OutlinedButton.icon(
+                  onPressed: () => _copyWithFeedback(
+                    context,
+                    _lifecycleJson(call),
+                    'Lifecycle copied',
+                  ),
+                  icon: const Icon(Icons.copy_all_rounded, size: 18),
+                  label: const Text('Copy lifecycle'),
+                ),
+                Builder(
+                  builder: (shareContext) => FilledButton.tonalIcon(
+                    onPressed: () => _shareLifecycle(shareContext, call),
+                    icon: const Icon(Icons.share_rounded, size: 18),
+                    label: const Text('Share lifecycle'),
+                  ),
+                ),
                 DecoratedBox(
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -939,7 +963,14 @@ class _RequestTab extends StatelessWidget {
           child: _QueryParameters(call.request.uri.queryParametersAll),
         ),
         _Section(title: 'Headers', child: _HeadersTable(call.request.headers)),
-        _Section(title: 'Body', child: _BodyView(call.request.body)),
+        _Section(
+          title: 'Body',
+          trailing: _CopyBodyButton(
+            body: call.request.body,
+            feedback: 'Request body copied',
+          ),
+          child: _BodyView(call.request.body),
+        ),
       ],
     );
   }
@@ -986,7 +1017,14 @@ class _ResponseTab extends StatelessWidget {
           title: 'Headers',
           child: _HeadersTable(response.headers),
         ),
-        _Section(title: 'Body', child: _BodyView(response.body)),
+        _Section(
+          title: 'Body',
+          trailing: _CopyBodyButton(
+            body: response.body,
+            feedback: 'Response body copied',
+          ),
+          child: _BodyView(response.body),
+        ),
       ],
     );
   }
@@ -1096,44 +1134,73 @@ class _ServerDebugTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final debug = call.response?.serverDebug;
+    final response = call.response;
+    final error = call.error;
+    final hasFailure = error != null || (response?.statusCode ?? 0) >= 400;
 
-    if (debug == null) {
+    if (debug == null && !hasFailure) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(24),
-          child: _MutedText('No gated server debug payload captured'),
+          child: _MutedText('No failure or server debug payload captured'),
         ),
       );
     }
 
     return _TabList(
       children: [
-        _Section(
-          title: 'Server Debug',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _KeyValueRow('Error', debug.error ?? '-'),
-              _KeyValueRow('Truncated', debug.truncated ? 'Yes' : 'No'),
-            ],
-          ),
-        ),
-        _Section(
-          title: 'Stack',
-          child: _CodeBlock(debug.stack ?? '-'),
-        ),
-        _Section(
-          title: 'Context',
-          child: debug.context.isEmpty
-              ? const _MutedText('No context')
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (final entry in debug.context.entries)
-                      _KeyValueRow(entry.key, '${entry.value}'),
-                  ],
+        if (hasFailure)
+          _Section(
+            title: 'Failure',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _KeyValueRow(
+                  'Status',
+                  response == null
+                      ? 'No server response'
+                      : '${response.statusCode} ${response.statusMessage ?? ''}'
+                          .trim(),
                 ),
-        ),
+                if (error != null) ...[
+                  _KeyValueRow('Type', error.type ?? '-'),
+                  _KeyValueRow('Message', error.message),
+                ],
+                _KeyValueRow('Trace ID', call.request.traceContext.traceId),
+              ],
+            ),
+          ),
+        if (response != null && hasFailure)
+          _Section(title: 'Response body', child: _BodyView(response.body)),
+        if (debug != null) ...[
+          _Section(
+            title: 'Server Debug',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _KeyValueRow('Error', debug.error ?? '-'),
+                _KeyValueRow('Truncated', debug.truncated ? 'Yes' : 'No'),
+              ],
+            ),
+          ),
+          _Section(title: 'Stack', child: _CodeBlock(debug.stack ?? '-')),
+          _Section(
+            title: 'Context',
+            child: debug.context.isEmpty
+                ? const _MutedText('No context')
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final entry in debug.context.entries)
+                        _KeyValueRow(entry.key, '${entry.value}'),
+                    ],
+                  ),
+          ),
+        ] else if (hasFailure)
+          const _Section(
+            title: 'Server Debug',
+            child: _MutedText('No gated server debug payload received'),
+          ),
       ],
     );
   }
@@ -1243,6 +1310,24 @@ class _BodyView extends StatelessWidget {
         const SizedBox(height: 12),
         _CodeBlock('$text$suffix'),
       ],
+    );
+  }
+}
+
+class _CopyBodyButton extends StatelessWidget {
+  const _CopyBodyButton({required this.body, required this.feedback});
+
+  final VigilBodySummary body;
+  final String feedback;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: body.isDisplayable && body.text != null
+          ? () => _copyWithFeedback(context, body.text ?? '', feedback)
+          : null,
+      icon: const Icon(Icons.copy_rounded, size: 18),
+      label: const Text('Copy body'),
     );
   }
 }
@@ -1632,4 +1717,89 @@ String _prettyBody(VigilBodySummary body) {
   } catch (_) {
     return text;
   }
+}
+
+Future<void> _shareLifecycle(
+  BuildContext context,
+  VigilHttpCall call,
+) async {
+  final renderObject = context.findRenderObject();
+  final sharePositionOrigin = renderObject is RenderBox && renderObject.hasSize
+      ? renderObject.localToGlobal(Offset.zero) & renderObject.size
+      : null;
+
+  try {
+    await SharePlus.instance.share(
+      ShareParams(
+        text: _lifecycleJson(call),
+        subject: 'Vigil request lifecycle: '
+            '${call.request.method.toUpperCase()} ${_pathOnly(call.request.uri)}',
+        title: 'Vigil request lifecycle',
+        sharePositionOrigin: sharePositionOrigin,
+      ),
+    );
+  } catch (_) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Unable to open the share sheet'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+}
+
+String _lifecycleJson(VigilHttpCall call) {
+  final request = call.request;
+  final response = call.response;
+  final error = call.error;
+
+  return const JsonEncoder.withIndent('  ').convert({
+    'format': 'vigil-request-lifecycle',
+    'version': 1,
+    'id': call.id,
+    'state': call.state.name,
+    'startedAt': call.startedAt.toUtc().toIso8601String(),
+    'completedAt': call.completedAt?.toUtc().toIso8601String(),
+    'durationMs': call.duration == null
+        ? null
+        : call.duration!.inMicroseconds / Duration.microsecondsPerMillisecond,
+    'trace': {
+      'traceparent': request.traceContext.toHeader(),
+      'traceId': request.traceContext.traceId,
+      'parentId': request.traceContext.parentId,
+      'flags': request.traceContext.flags,
+    },
+    'request': {
+      'method': request.method,
+      'url': request.uri.toString(),
+      'headers': request.headers,
+      'body': request.body.toJson(),
+      'timestamp': request.timestamp.toUtc().toIso8601String(),
+    },
+    'response': response == null
+        ? null
+        : {
+            'statusCode': response.statusCode,
+            'statusMessage': response.statusMessage,
+            'headers': response.headers,
+            'body': response.body.toJson(),
+            'timestamp': response.timestamp.toUtc().toIso8601String(),
+            'serverTimings': response.serverTimings
+                .map((timing) => timing.toJson())
+                .toList(growable: false),
+            'serverDebug': response.serverDebug?.toJson(),
+          },
+    'error': error == null
+        ? null
+        : {
+            'message': error.message,
+            'type': error.type,
+            'stackTrace': error.stackTrace?.toString(),
+            'timestamp': error.timestamp.toUtc().toIso8601String(),
+          },
+  });
 }

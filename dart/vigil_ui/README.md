@@ -1,6 +1,10 @@
 A Flutter inspector for calls captured by `vigil_core`. It provides request
 search and filters, request/response details, cURL export, client and server
-timing, gated debug details, and shake-to-open behavior.
+timing, complete lifecycle copy/share, request and response body copying, gated
+debug details, and shake-to-open behavior.
+The Debug tab also shows the captured client error, status, and response body
+when an API fails without a `Vigil-Debug` header. A connection failure has no
+server response, so server stack details cannot be displayed for that call.
 
 ## Installation
 

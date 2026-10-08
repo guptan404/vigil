@@ -25,6 +25,6 @@ melos:
       description: Analyze the complete Dart and Flutter workspace.
     test:
       run: >-
-        melos exec --concurrency=1 --dir-exists=test --
+        dart run melos exec --concurrency=1 --dir-exists=test --
         "if grep -q 'sdk: flutter' pubspec.yaml; then flutter test; else dart test; fi"
       description: Run Dart and Flutter package tests.

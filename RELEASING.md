@@ -21,7 +21,10 @@ reviewed commit rather than from a working tree containing unrelated changes.
 2. Update each affected `CHANGELOG.md`.
 3. Run `./tool/release_check.sh`.
 4. Inspect every pub and npm file list printed by the dry runs.
-5. Commit the release changes and rerun dry runs from a clean working tree.
+5. Open a pull request and wait for the `Validate packages` check to pass.
+6. Merge the reviewed release commit, then rerun the registry dry runs from
+   the exact commit that will be published. Publish only after the version is
+   confirmed to be unused on both registries.
 
 The Dart packages use Pub workspaces, so internal dependencies resolve to local
 packages during development while their published manifests retain hosted
@@ -30,7 +33,7 @@ validate a dependent package against the hosted version by temporarily adding a
 `pubspec_overrides.yaml` beside it containing an empty `resolution:` field, then
 run `dart pub get`, analysis, tests, and `dart pub publish --dry-run`.
 
-## First pub.dev release
+## pub.dev release
 
 Publish in dependency order and wait for each dependency to become resolvable:
 
@@ -54,7 +57,7 @@ dart pub publish
 The independent backend, Dio, and UI packages can be published in any order
 after `vigil_core`. The umbrella `vigil` package must be last.
 
-## First npm release
+## npm release
 
 Publish `@vigiljs/core` before `@vigiljs/express`:
 
