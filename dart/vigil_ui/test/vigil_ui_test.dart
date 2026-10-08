@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:vigil_core/vigil_core.dart';
@@ -237,5 +239,216 @@ void main() {
 
     expect(find.text('/users/profile'), findsOneWidget);
     expect(find.text('/api/auth/refresh'), findsNothing);
+  });
+
+  testWidgets('debug tab shows a transport failure without a response',
+      (tester) async {
+    final vigil = Vigil.instance..init();
+    final id = vigil.startCall(
+      VigilHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://example.com/offline'),
+        headers: const {},
+        body: VigilBodySummary.empty,
+        timestamp: DateTime.now(),
+        traceContext: VigilTraceContext.generate(),
+      ),
+    );
+    vigil.failCall(
+      id,
+      VigilHttpError(
+        message: 'Connection refused',
+        type: 'connectionError',
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: VigilInspector(vigil: vigil)));
+    await tester.tap(find.text('/offline'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Debug'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No server response'), findsOneWidget);
+    expect(find.text('Connection refused'), findsOneWidget);
+    expect(find.text('No gated server debug payload received'), findsOneWidget);
+  });
+
+  testWidgets('debug tab shows an HTTP failure without a gated header',
+      (tester) async {
+    final vigil = Vigil.instance..init();
+    final id = vigil.startCall(
+      VigilHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://example.com/unavailable'),
+        headers: const {},
+        body: VigilBodySummary.empty,
+        timestamp: DateTime.now(),
+        traceContext: VigilTraceContext.generate(),
+      ),
+    );
+    vigil.failCall(
+      id,
+      VigilHttpError(message: 'Bad response', timestamp: DateTime.now()),
+      response: VigilHttpResponse(
+        statusCode: 503,
+        headers: const {},
+        body: const VigilBodySummary(
+          kind: VigilBodyKind.json,
+          text: '{"message":"Service unavailable"}',
+        ),
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: VigilInspector(vigil: vigil)));
+    await tester.tap(find.text('/unavailable'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Debug'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('503'), findsWidgets);
+    expect(find.textContaining('Service unavailable'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.text('No gated server debug payload received'), findsOneWidget);
+  });
+
+  testWidgets('debug tab shows gated backend diagnostics', (tester) async {
+    final vigil = Vigil.instance..init();
+    final id = vigil.startCall(
+      VigilHttpRequest(
+        method: 'GET',
+        uri: Uri.parse('https://example.com/broken'),
+        headers: const {},
+        body: VigilBodySummary.empty,
+        timestamp: DateTime.now(),
+        traceContext: VigilTraceContext.generate(),
+      ),
+    );
+    vigil.failCall(
+      id,
+      VigilHttpError(message: 'Bad response', timestamp: DateTime.now()),
+      response: VigilHttpResponse(
+        statusCode: 500,
+        headers: const {},
+        body: VigilBodySummary.empty,
+        timestamp: DateTime.now(),
+        serverDebug: const VigilDebugPayload(
+          error: 'backend exploded',
+          stack: 'at routeHandler',
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: VigilInspector(vigil: vigil)));
+    await tester.tap(find.text('/broken'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Debug'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('backend exploded'), findsOneWidget);
+    expect(find.text('at routeHandler'), findsOneWidget);
+  });
+
+  testWidgets('copies bodies and a complete request lifecycle', (tester) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+
+    final vigil = Vigil.instance..init();
+    final startedAt = DateTime.utc(2026, 10, 3, 8, 30);
+    final trace = VigilTraceContext.generate();
+    const requestBody = '{"username":"vigil"}';
+    const responseBody = '{"authenticated":true}';
+    final id = vigil.startCall(
+      VigilHttpRequest(
+        method: 'POST',
+        uri: Uri.parse('https://example.com/api/lifecycle?source=test'),
+        headers: const {'content-type': 'application/json'},
+        body: const VigilBodySummary(
+          kind: VigilBodyKind.json,
+          text: requestBody,
+          byteLength: 20,
+          contentType: 'application/json',
+        ),
+        timestamp: startedAt,
+        traceContext: trace,
+      ),
+    );
+    vigil.completeCall(
+      id,
+      VigilHttpResponse(
+        statusCode: 201,
+        statusMessage: 'Created',
+        headers: const {'content-type': 'application/json'},
+        body: const VigilBodySummary(
+          kind: VigilBodyKind.json,
+          text: responseBody,
+          byteLength: 22,
+          contentType: 'application/json',
+        ),
+        timestamp: startedAt.add(const Duration(milliseconds: 125)),
+        serverTimings: const [
+          VigilServerTiming(name: 'db', duration: 12.5),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(home: VigilInspector(vigil: vigil)));
+    await tester.tap(find.textContaining('/api/lifecycle'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Share lifecycle'), findsOneWidget);
+
+    await tester.tap(find.text('Copy lifecycle'));
+    await tester.pump();
+
+    final lifecycle = jsonDecode(clipboardText!) as Map<String, Object?>;
+    expect(lifecycle['format'], 'vigil-request-lifecycle');
+    expect(
+      (lifecycle['request'] as Map<String, Object?>)['body'],
+      containsPair('text', requestBody),
+    );
+    expect(
+      (lifecycle['response'] as Map<String, Object?>)['body'],
+      containsPair('text', responseBody),
+    );
+    expect(lifecycle['durationMs'], 125);
+
+    await tester.tap(find.text('Request'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copy body'));
+    await tester.pump();
+    expect(clipboardText, requestBody);
+
+    await tester.tap(find.text('Response'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Copy body'));
+    await tester.pump();
+    expect(clipboardText, responseBody);
   });
 }

@@ -1,3 +1,7 @@
+## 0.1.1
+
+- Published the core package alongside the inspector update; no API changes.
+
 ## 0.1.0
 
 - Added in-memory request capture and lifecycle events.

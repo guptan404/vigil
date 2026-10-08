@@ -96,7 +96,7 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
       },
     };
 
-    patchWriteHead(res, () => {
+    patchWriteHead(res, (statusCode) => {
       if (config.includeTotalTiming ?? true) {
         const responseStartedAt = process.hrtime.bigint();
         timings.unshift({
@@ -108,6 +108,25 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
       if (timings.length > 0 && !res.headersSent) {
         const header = serializeServerTiming(timings, config.headerLimitBytes ?? 4096);
         if (header) res.setHeader("Server-Timing", header);
+      }
+      if (
+        statusCode >= 400 &&
+        config.debugKey &&
+        req.header("Vigil-Key") === config.debugKey &&
+        !res.hasHeader("Vigil-Debug")
+      ) {
+        res.setHeader("Vigil-Debug", encodeDebugPayload({
+          error: `HTTP ${statusCode}`,
+          context: {
+            method: req.method,
+            path: req.path,
+            statusCode,
+            traceparent,
+          },
+        }, {
+          maxBytes: config.headerLimitBytes ?? 8192,
+          maskFields: config.maskBodyFields ?? [],
+        }));
       }
     });
 
@@ -266,13 +285,13 @@ function createNoopContext(traceparent = ""): VigilRequestContext {
   };
 }
 
-function patchWriteHead(res: Response, beforeWrite: () => void): void {
+function patchWriteHead(res: Response, beforeWrite: (statusCode: number) => void): void {
   const original = res.writeHead.bind(res);
   let patched = false;
   res.writeHead = ((...args: Parameters<Response["writeHead"]>) => {
     if (!patched) {
       patched = true;
-      beforeWrite();
+      beforeWrite(args[0]);
     }
     return original(...args);
   }) as Response["writeHead"];

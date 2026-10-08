@@ -81,16 +81,23 @@ class VigilDioInterceptor extends Interceptor {
       body: _summarizeBody(response.data, headers),
       timestamp: DateTime.now(),
       serverTimings: VigilServerTimingParser.parse(
-        headers['Server-Timing'] ?? headers['server-timing'],
+        _headerValue(headers, 'server-timing'),
       ),
       serverDebug: VigilDebugPayload.tryParse(
-        headers['Vigil-Debug'] ?? headers['vigil-debug'],
+        _headerValue(headers, 'vigil-debug'),
       ),
     );
   }
 
   Map<String, String> _headersFromDio(Headers headers) {
     return headers.map.map((key, values) => MapEntry(key, values.join(', ')));
+  }
+
+  String? _headerValue(Map<String, String> headers, String name) {
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == name) return entry.value;
+    }
+    return null;
   }
 
   VigilBodySummary _summarizeBody(Object? body, Map<String, String> headers) {
