@@ -104,60 +104,10 @@ class VigilDioInterceptor extends Interceptor {
     if (body is ResponseBody || body is Stream) {
       return VigilBodySummary.unavailable;
     }
-    if (body is FormData) return _summarizeFormData(body);
     return VigilBodySummary.summarize(
       body,
       headers: headers,
       config: _vigil.config,
-    );
-  }
-
-  /// Describes multipart text fields and file metadata as masked JSON.
-  ///
-  /// File contents are not read: Dio can consume a [MultipartFile] stream only
-  /// once, so reading it here would break the upload. Repeated names, such as
-  /// several files under one key, are collected into a list.
-  VigilBodySummary _summarizeFormData(FormData form) {
-    final description = <String, Object>{};
-    void add(String name, Object value) {
-      final existing = description[name];
-      if (existing == null) {
-        description[name] = value;
-      } else if (existing is List<Object>) {
-        existing.add(value);
-      } else {
-        description[name] = <Object>[existing, value];
-      }
-    }
-
-    for (final field in form.fields) {
-      add(field.key, field.value);
-    }
-    for (final file in form.files) {
-      add(file.key, {
-        'filename': file.value.filename,
-        'contentType': file.value.contentType?.toString(),
-        'bytes': file.value.length,
-      });
-    }
-
-    // Dio adds the multipart Content-Type header after interceptors run, so it
-    // is usually absent from the captured request headers.
-    final summary = VigilBodySummary.summarize(
-      description,
-      headers: const {'content-type': 'multipart/form-data'},
-      config: _vigil.config,
-    );
-    if (summary.kind == VigilBodyKind.unavailable) return summary;
-
-    // Report the size of the multipart payload Dio uploads rather than the
-    // size of this description.
-    return VigilBodySummary(
-      kind: summary.kind,
-      text: summary.text,
-      byteLength: form.length,
-      truncated: summary.truncated,
-      contentType: summary.contentType,
     );
   }
 }

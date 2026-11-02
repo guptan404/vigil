@@ -57,51 +57,6 @@ void main() {
     expect(vigil.calls.single.response!.serverDebug?.error, 'backend failed');
   });
 
-  test('captures FormData fields and file metadata', () async {
-    final vigil = Vigil.instance..init();
-    final dio = Dio()
-      ..interceptors.add(VigilDioInterceptor(vigil: vigil))
-      ..httpClientAdapter = _Adapter(
-        (request) async => ResponseBody.fromString('ok', 200),
-      );
-    final form = FormData()
-      ..fields.addAll(const [
-        MapEntry('name', 'Ada'),
-        MapEntry('password', 'hunter2'),
-        MapEntry('tag', 'a'),
-        MapEntry('tag', 'b'),
-      ])
-      ..files.add(
-        MapEntry(
-          'avatar',
-          MultipartFile.fromBytes(
-            [1, 2, 3],
-            filename: 'avatar.png',
-            contentType: DioMediaType('image', 'png'),
-          ),
-        ),
-      );
-    final uploadLength = form.length;
-
-    await dio.post('https://example.com/upload', data: form);
-
-    final body = vigil.calls.single.request.body;
-    expect(body.kind, VigilBodyKind.json);
-    expect(body.contentType, 'multipart/form-data');
-    expect(body.byteLength, uploadLength);
-    expect(body.text, isNot(contains('hunter2')));
-    expect(jsonDecode(body.text!), {
-      'name': 'Ada',
-      'password': '[redacted]',
-      'tag': ['a', 'b'],
-      'avatar': {
-        'filename': 'avatar.png',
-        'contentType': 'image/png',
-        'bytes': 3,
-      },
-    });
-  });
-
   test('disabled mode is a no-op', () async {
     final vigil = Vigil.instance
       ..init(config: const VigilConfig(enabled: false));
