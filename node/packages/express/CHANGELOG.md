@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Use the updated debug encoder to preserve redaction and enforce size limits in response headers.
+
 ## 0.1.1
 
 - Added gated `Vigil-Debug` diagnostics for direct 4xx and 5xx responses.

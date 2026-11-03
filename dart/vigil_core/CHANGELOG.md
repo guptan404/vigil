@@ -1,3 +1,8 @@
+## 0.1.2
+
+- Redact configured fields in JSON strings and UTF-8 byte bodies before capture.
+- Summarize binary data without retaining its contents and preserve numeric JSON arrays.
+
 ## 0.1.1
 
 - Published the core package alongside the inspector update; no API changes.

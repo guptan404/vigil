@@ -1,3 +1,7 @@
+## 0.1.2
+
+- Capture masked multipart fields and file metadata without consuming upload streams.
+
 ## 0.1.1
 
 - Read response headers case insensitively so server timing and gated debug data are captured with any header casing.

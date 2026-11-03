@@ -1,3 +1,7 @@
+## 0.1.2
+
+- Update the capture dependency and document cURL and lifecycle sharing.
+
 ## 0.1.1
 
 - Added copy and platform-share actions for the complete request lifecycle.
