@@ -1,0 +1,50 @@
+name: Publish to GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate tarballs without publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-github-packages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'guptan404/vigil' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@guptan404'
+      - run: npm ci
+      - run: npm run check
+      - run: node tool/stage_github_packages.mjs "$RUNNER_TEMP/vigil-packages"
+      - name: Pack and validate
+        working-directory: ${{ runner.temp }}/vigil-packages
+        run: |
+          npm pack ./core ./express
+          for package in ./*.tgz; do
+            npm publish "$package" --dry-run --registry=https://npm.pkg.github.com
+          done
+      - name: Publish core, then Express
+        if: ${{ !inputs.dry_run }}
+        working-directory: ${{ runner.temp }}/vigil-packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm publish ./guptan404-vigil-core-*.tgz --registry=https://npm.pkg.github.com
+          npm publish ./guptan404-vigil-express-*.tgz --registry=https://npm.pkg.github.com
