@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -115,6 +116,67 @@ void main() {
     await connection.flush();
     expect(connection.queuedCount, 0);
 
+    await connection.dispose(flushPending: false);
+  });
+
+  test('dispose waits for an in-flight upload before returning', () async {
+    final response = Completer<http.Response>();
+    final client = MockClient((_) => response.future);
+    final vigil = Vigil.instance..init();
+    final connection = VigilBackendConnection(
+      config: VigilBackendConfig(
+        endpoint: Uri.parse('https://collector.example.com/vigil'),
+        flushInterval: Duration.zero,
+      ),
+      vigil: vigil,
+      client: client,
+    )..start();
+
+    final id = vigil.startCall(_request('/ok'));
+    vigil.completeCall(id, _response(200));
+    await _settleEvents();
+    final flush = connection.flush();
+    var disposed = false;
+    final disposal = connection.dispose(flushPending: false).then((_) {
+      disposed = true;
+    });
+    await _settleEvents();
+    expect(disposed, isFalse);
+
+    response.complete(http.Response('{}', 202));
+    await Future.wait([flush, disposal]);
+    expect(disposed, isTrue);
+    expect(connection.queuedCount, 0);
+  });
+
+  test('an upload does not remove a newer call after queue eviction', () async {
+    final response = Completer<http.Response>();
+    final client = MockClient((_) => response.future);
+    final vigil = Vigil.instance..init();
+    final connection = VigilBackendConnection(
+      config: VigilBackendConfig(
+        endpoint: Uri.parse('https://collector.example.com/vigil'),
+        flushInterval: Duration.zero,
+        batchSize: 2,
+        maxQueueSize: 2,
+      ),
+      vigil: vigil,
+      client: client,
+    )..start();
+
+    for (final path in ['/first', '/second']) {
+      final id = vigil.startCall(_request(path));
+      vigil.completeCall(id, _response(200));
+    }
+    await _settleEvents();
+    final inFlight = connection.flush();
+    final third = vigil.startCall(_request('/third'));
+    vigil.completeCall(third, _response(200));
+    await _settleEvents();
+
+    response.complete(http.Response('{}', 202));
+    await inFlight;
+    expect(connection.queuedCount, 1);
     await connection.dispose(flushPending: false);
   });
 }

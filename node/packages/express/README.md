@@ -4,6 +4,27 @@ Express middleware for correlating Vigil client calls, emitting total and
 custom `Server-Timing` metrics, returning gated error diagnostics, and receiving
 optional client capture batches.
 
+The companion [`vigil` package on pub.dev](https://pub.dev/packages/vigil)
+captures Dio traffic in Flutter and provides the in-app inspector. Developers
+can search a call, **Copy cURL** to share a request with backend teammates, or
+use **Copy lifecycle** and **Share lifecycle** for JSON containing the request,
+response, trace, timing, and failure details. The separate
+[`vigil_backend` package](https://pub.dev/packages/vigil_backend), also exported
+by `vigil`, uploads captured calls to this package's ingest handler.
+
+## How Flutter and Express communicate
+
+1. The Flutter interceptor sends `traceparent` with the request. This
+   middleware returns that trace and `Server-Timing` metrics with the response.
+2. For an error response, a matching development `Vigil-Key` enables a
+   `Vigil-Debug` header. The Flutter Debug tab can show the backend error
+   message, stack trace, and request context alongside the client failure.
+3. Optional ingest uses a separate `Vigil-Ingest-Key` and an HTTP JSON batch.
+   It is independent of the response diagnostics path.
+
+`Vigil-Debug` contains diagnostics for one response. It does not stream or
+retrieve arbitrary application logs.
+
 ## Installation
 
 ```sh
@@ -84,6 +105,11 @@ app.post("/vigil/ingest", vigilIngestHandler({
 The supplied memory sink is bounded and intended for local development and
 tests. Use an access-controlled, retention-aware destination for persistent
 storage.
+
+In Flutter, configure `VigilBackendConnection` from
+[`vigil_backend`](https://pub.dev/packages/vigil_backend) with this route as
+its `endpoint` and the same ingest key. Upload includes completed and failed
+client call summaries; it does not cause this middleware to collect server logs.
 
 ## Browser clients
 

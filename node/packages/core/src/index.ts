@@ -84,22 +84,28 @@ export function encodeDebugPayload(
   options: DebugEncodeOptions = {},
 ): string {
   const maxBytes = options.maxBytes ?? 8192;
-  const masked = maskObject(payload, new Set((options.maskFields ?? []).map((field) => field.toLowerCase())));
+  const masked = maskObject(payload, new Set((options.maskFields ?? []).map((field) => field.toLowerCase()))) as VigilDebugPayload;
   let candidate = encode(masked);
   if (Buffer.byteLength(candidate, "utf8") <= maxBytes) return candidate;
 
   const trimmed: VigilDebugPayload = {
-    error: payload.error?.slice(0, 500),
-    stack: payload.stack?.slice(0, 1500),
+    error: masked.error?.slice(0, 500),
+    stack: masked.stack?.slice(0, 1500),
     context: undefined,
     truncated: true,
   };
   candidate = encode(trimmed);
-  while (Buffer.byteLength(candidate, "utf8") > maxBytes && trimmed.stack && trimmed.stack.length > 200) {
-    trimmed.stack = trimmed.stack.slice(0, Math.floor(trimmed.stack.length * 0.7));
+  while (Buffer.byteLength(candidate, "utf8") > maxBytes && (trimmed.stack || trimmed.error)) {
+    if ((trimmed.stack?.length ?? 0) >= (trimmed.error?.length ?? 0)) {
+      trimmed.stack = trimmed.stack?.slice(0, Math.floor(trimmed.stack.length / 2));
+    } else {
+      trimmed.error = trimmed.error?.slice(0, Math.floor(trimmed.error.length / 2));
+    }
     candidate = encode(trimmed);
   }
-  return candidate;
+  if (Buffer.byteLength(candidate, "utf8") <= maxBytes) return candidate;
+  const minimal = encode({ truncated: true });
+  return Buffer.byteLength(minimal, "utf8") <= maxBytes ? minimal : "";
 }
 
 /** Recursively redacts object fields using case-insensitive names. */

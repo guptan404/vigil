@@ -1,6 +1,14 @@
+# vigil_dio
+
 A Dio interceptor that records requests, responses, and failures in Vigil. It
 adds W3C `traceparent`, parses backend `Server-Timing`, and decodes gated
 `Vigil-Debug` error diagnostics.
+
+For an in-app inspector with Copy cURL and lifecycle sharing, use the
+[`vigil` Flutter package](https://pub.dev/packages/vigil). Pair the interceptor
+with [`@vigiljs/express` on npm](https://www.npmjs.com/package/@vigiljs/express)
+to see correlated backend timing and per-request error message, stack, and
+context in its Debug tab. This does not retrieve arbitrary backend logs.
 
 ## Installation
 

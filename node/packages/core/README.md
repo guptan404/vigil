@@ -4,6 +4,14 @@ Protocol helpers shared by Vigil Node integrations: W3C trace context,
 `Server-Timing` serialization, recursive field masking, and size-limited gated
 debug payload encoding.
 
+For a complete Express integration, install
+[`@vigiljs/express`](https://www.npmjs.com/package/@vigiljs/express). Its
+Flutter counterpart is [`vigil` on pub.dev](https://pub.dev/packages/vigil),
+which captures Dio calls, shows an in-app inspector, and lets developers copy
+cURL or share the request lifecycle with backend teammates. The optional
+[`vigil_backend` package](https://pub.dev/packages/vigil_backend) uploads
+client call summaries to an Express ingest endpoint.
+
 ## Installation
 
 ```sh
