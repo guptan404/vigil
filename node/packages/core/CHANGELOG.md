@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Keep truncated debug payloads redacted and enforce the configured encoded header size limit.
+
 ## 0.1.1
 
 - Published the core utilities alongside the Express diagnostics update; no API changes.

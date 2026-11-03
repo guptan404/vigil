@@ -7,7 +7,7 @@
     "dev": "tsx src/server.ts"
   },
   "dependencies": {
-    "@vigiljs/express": "0.1.1",
+    "@vigiljs/express": "0.1.2",
     "express": "^5.2.1",
     "tsx": "^4.23.15"
   }

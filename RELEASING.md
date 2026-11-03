@@ -69,6 +69,33 @@ npm publish --workspace @vigiljs/express --access public
 When publishing from a supported trusted CI workflow, npm generates provenance
 automatically. Do not publish the private workspace root or either example app.
 
+## GitHub Packages npm release
+
+After merging the release PR, run **Publish to GitHub Packages** from
+`main`. The workflow defaults to a dry run. Clear the dry-run input to
+publish. The workflow uses the repository's `GITHUB_TOKEN` and publishes
+`@guptan404/vigil-core` before `@guptan404/vigil-express`. Review the
+packages' visibility and access settings on GitHub after the first publish.
+
+To install the GitHub Packages build, add this scope mapping to the consumer
+project's `.npmrc`:
+
+```ini
+@guptan404:registry=https://npm.pkg.github.com
+```
+
+Authenticate using a classic PAT with `read:packages` and access to the
+packages. Enter the token at the password prompt:
+
+```sh
+npm login --scope=@guptan404 --auth-type=legacy --registry=https://npm.pkg.github.com
+npm install @guptan404/vigil-express express
+```
+
+Import the middleware from `@guptan404/vigil-express`. Its matching core
+dependency resolves from the same scope. The public npm release uses the
+`@vigiljs` scope.
+
 ## After publishing
 
 1. Install every package into a fresh sample application from its registry.
