@@ -27,4 +27,16 @@ describe("@vigiljs/core", () => {
     const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
     expect(decoded.context.password).toBe("[redacted]");
   });
+
+  it("keeps truncated debug payloads masked and within the header limit", () => {
+    const encoded = encodeDebugPayload(
+      { error: "private".repeat(1000), stack: "trace".repeat(1000) },
+      { maxBytes: 100, maskFields: ["error"] },
+    );
+    const decoded = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    expect(Buffer.byteLength(encoded)).toBeLessThanOrEqual(100);
+    expect(decoded.error).toBe("[redacted]");
+    expect(decoded.truncated).toBe(true);
+    expect(encodeDebugPayload({ error: "boom" }, { maxBytes: 1 })).toBe("");
+  });
 });

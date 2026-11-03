@@ -12,6 +12,7 @@ dart run melos run analyze
 dart run melos run test
 
 npm run check
+npm run test:integration
 npm run pack:check
 
 for package in \

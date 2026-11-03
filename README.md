@@ -5,6 +5,26 @@ Dio traffic, masks sensitive data, correlates mobile and Express requests with
 W3C `traceparent`, displays `Server-Timing`, and can show opt-in backend error
 diagnostics without replacing your existing API responses.
 
+Use the [Flutter package on pub.dev](https://pub.dev/packages/vigil) in the app
+and the [Express package on npm](https://www.npmjs.com/package/@vigiljs/express)
+on a Node backend. Either side can be used alone; together they connect a
+captured client call to server timing and error details through the same trace.
+
+## What you can do
+
+- Open the in-app inspector by shaking the device, using a floating button, or
+  presenting it from your own debug menu. Search calls and inspect the request,
+  response, timing, and Debug tabs.
+- Copy a cURL command to help a backend teammate replay a request after
+  replacing redacted credentials. Copy or share lifecycle JSON containing the
+  request, response, timing, trace, and failure details.
+- See client errors even when there is no server response. With a matching
+  development key, the backend can also return its error message, stack trace,
+  and request context in the Debug tab. This is request diagnostics, not a
+  general server log stream.
+- Optionally upload completed and failed call summaries in batches to an
+  Express ingest endpoint for development or test inspection.
+
 > Vigil is currently a `0.1.x` development release. Enable it only in trusted
 > development or test environments until you have reviewed the masking,
 > authentication, retention, and transport settings for your application.
@@ -13,13 +33,13 @@ diagnostics without replacing your existing API responses.
 
 | Package | Registry | Purpose |
 | --- | --- | --- |
-| `vigil` | pub.dev | Recommended Flutter package; exports the complete client API |
-| `vigil_core` | pub.dev | Capture models, masking, trace context, timing parsing, and cURL export |
-| `vigil_dio` | pub.dev | Dio request/response interceptor |
-| `vigil_ui` | pub.dev | Searchable Flutter inspector overlay |
-| `vigil_backend` | pub.dev | Optional batched upload of captured calls |
-| `@vigiljs/core` | npm | Node protocol, trace, timing, masking, and debug helpers |
-| `@vigiljs/express` | npm | Express middleware, error diagnostics, and ingest handler |
+| [`vigil`](https://pub.dev/packages/vigil) | pub.dev | Recommended Flutter package; exports the complete client API |
+| [`vigil_core`](https://pub.dev/packages/vigil_core) | pub.dev | Capture models, masking, trace context, timing parsing, and cURL export |
+| [`vigil_dio`](https://pub.dev/packages/vigil_dio) | pub.dev | Dio request/response interceptor |
+| [`vigil_ui`](https://pub.dev/packages/vigil_ui) | pub.dev | Searchable Flutter inspector overlay |
+| [`vigil_backend`](https://pub.dev/packages/vigil_backend) | pub.dev | Optional batched upload of captured calls |
+| [`@vigiljs/core`](https://www.npmjs.com/package/@vigiljs/core) | npm | Node protocol, trace, timing, masking, and debug helpers |
+| [`@vigiljs/express`](https://www.npmjs.com/package/@vigiljs/express) | npm | Express middleware, error diagnostics, and ingest handler |
 
 ## Flutter quick start
 
@@ -70,6 +90,11 @@ class App extends StatelessWidget {
 
 `VigilOverlay` opens on a shake by default. Set `showFloatingButton: true` for
 an explicit launcher, or render `VigilInspector` from your own debug menu.
+In request details, use **Copy cURL** to send a replayable command to a
+backend teammate. **Copy lifecycle** and **Share lifecycle** include the
+captured request, response, timings, trace, and error as JSON. Review that
+content before sharing: configured header and JSON body fields are masked,
+but URL paths and query parameters can still contain sensitive values.
 
 ## Express integration
 
@@ -117,6 +142,8 @@ With a matching `Vigil-Key`, direct 4xx/5xx responses include a status and
 trace diagnostic. Errors passed through `vigilErrorHandler` also include the
 server error and stack. The Debug tab shows captured client failure details
 even when a network failure prevents any server response.
+Vigil does not retrieve arbitrary application logs from the backend; the
+`Vigil-Debug` header carries diagnostics for that response only.
 
 For Flutter Web, expose `Server-Timing`, `traceparent`, and `Vigil-Debug` in
 your CORS configuration or browsers will hide them from Dio.
@@ -175,7 +202,11 @@ dart run melos run analyze
 dart run melos run test
 npm ci
 npm run check
+npm run test:integration
 ```
+
+The integration command starts a local Express server and checks real Dio
+requests, response diagnostics, and ingest uploads against it.
 
 Runnable examples live in [`example/flutter_app`](example/flutter_app) and
 [`example/node_server`](example/node_server).

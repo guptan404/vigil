@@ -82,6 +82,30 @@ class VigilBodySummary {
 
     final contentType = _contentType(headers);
 
+    if (value is Uint8List ||
+        (value is List<int> && contentType != null && !_isJson(contentType))) {
+      final bytes = value as List<int>;
+      if (!_isText(contentType) && !_isJson(contentType)) {
+        return VigilBodySummary(
+          kind: VigilBodyKind.binary,
+          byteLength: bytes.length,
+          contentType: contentType,
+        );
+      }
+      if (_isJson(contentType)) {
+        try {
+          return summarize(
+            utf8.decode(bytes),
+            headers: headers,
+            config: config,
+          );
+        } on FormatException {
+          return unavailable;
+        }
+      }
+      return _fromBytes(bytes, contentType: contentType, config: config);
+    }
+
     if (value is Map || value is List) {
       final masked = VigilDataMasker.maskJson(value, config.maskBodyFields);
       return _fromText(
@@ -93,25 +117,25 @@ class VigilBodySummary {
     }
 
     if (value is String) {
-      final kind =
-          _isJson(contentType) ? VigilBodyKind.json : VigilBodyKind.text;
+      if (_isJson(contentType)) {
+        try {
+          final decoded = jsonDecode(value);
+          return _fromText(
+            jsonEncode(
+                VigilDataMasker.maskJson(decoded, config.maskBodyFields)),
+            contentType: contentType,
+            preferredKind: VigilBodyKind.json,
+            config: config,
+          );
+        } on FormatException {
+          return unavailable;
+        }
+      }
       return _fromText(
         value,
         contentType: contentType,
-        preferredKind: kind,
         config: config,
       );
-    }
-
-    if (value is List<int>) {
-      if (!_isText(contentType) && !_isJson(contentType)) {
-        return VigilBodySummary(
-          kind: VigilBodyKind.binary,
-          byteLength: value.length,
-          contentType: contentType,
-        );
-      }
-      return _fromBytes(value, contentType: contentType, config: config);
     }
 
     if (value is ByteBuffer) {

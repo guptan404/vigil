@@ -29,7 +29,7 @@ class VigilBackendConnection {
 
   StreamSubscription<VigilEvent>? _subscription;
   Timer? _flushTimer;
-  var _isFlushing = false;
+  Future<void>? _activeFlush;
   var _isDisposed = false;
 
   /// Whether the connection currently has an active Vigil event subscription.
@@ -71,12 +71,20 @@ class VigilBackendConnection {
   /// Attempts to upload the next batch.
   ///
   /// Failed and non-2xx batches remain queued for a future attempt.
-  Future<void> flush() async {
-    if (_isDisposed || !_config.enabled || _isFlushing || _queue.isEmpty) {
-      return;
-    }
+  Future<void> flush() {
+    if (_isDisposed) return Future<void>.value();
+    return _flushNextBatch();
+  }
 
-    _isFlushing = true;
+  Future<void> _flushNextBatch() {
+    if (_activeFlush != null) return _activeFlush!;
+    if (!_config.enabled || _queue.isEmpty) {
+      return Future<void>.value();
+    }
+    return _activeFlush = _flushBatch().whenComplete(() => _activeFlush = null);
+  }
+
+  Future<void> _flushBatch() async {
     try {
       final batch = _queue.take(_config.batchSize).toList(growable: false);
       final payload = VigilBackendPayload(
@@ -93,12 +101,12 @@ class VigilBackendConnection {
           .timeout(_config.requestTimeout);
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        _queue.removeRange(0, batch.length);
+        for (final call in batch) {
+          _queue.remove(call);
+        }
       }
     } on Object {
       // Keep the queued batch for the next flush attempt.
-    } finally {
-      _isFlushing = false;
     }
   }
 
@@ -110,16 +118,12 @@ class VigilBackendConnection {
     if (_isDisposed) return;
     _isDisposed = true;
     _flushTimer?.cancel();
-    await _subscription?.cancel();
-    _subscription = null;
-
     try {
-      if (!flushPending) return;
-      _isDisposed = false;
-      await flush();
+      await _subscription?.cancel();
+      _subscription = null;
+      await _activeFlush;
+      if (flushPending) await _flushNextBatch();
     } finally {
-      _isDisposed = true;
-
       if (_ownsClient) {
         _client.close();
       }

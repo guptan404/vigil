@@ -1,10 +1,22 @@
+# vigil_ui
+
 A Flutter inspector for calls captured by `vigil_core`. It provides request
-search and filters, request/response details, cURL export, client and server
-timing, complete lifecycle copy/share, request and response body copying, gated
-debug details, and shake-to-open behavior.
+search and filters, request/response details, one-tap Copy cURL, client and
+server timing, lifecycle JSON copy/share, body copying, gated debug details,
+and shake-to-open behavior. Copy cURL helps a backend teammate replay a
+request after replacing redacted credentials; lifecycle JSON includes its
+trace, request, response, timings, and failure details for handoff.
+
 The Debug tab also shows the captured client error, status, and response body
 when an API fails without a `Vigil-Debug` header. A connection failure has no
 server response, so server stack details cannot be displayed for that call.
+
+With [`@vigiljs/express` on npm](https://www.npmjs.com/package/@vigiljs/express)
+and a matching debug key, it can show the backend error message, stack, and
+request context for that response. It does not fetch a server log stream.
+
+Most Flutter apps can install [`vigil`](https://pub.dev/packages/vigil), which
+includes this UI, Dio capture, and optional upload.
 
 ## Installation
 
@@ -42,3 +54,5 @@ const VigilInspector();
 The overlay respects system insets for content while painting its background
 edge-to-edge. Disable the overlay in production unless its captured data and
 access model have been explicitly reviewed.
+Review cURL and lifecycle JSON before sharing: configured headers and JSON
+body fields are masked, but URLs can contain sensitive query parameters.

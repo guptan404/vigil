@@ -71,6 +71,56 @@ void main() {
     expect(summary.byteLength, 6);
   });
 
+  test('masks JSON supplied as a string before retaining it', () {
+    final summary = VigilBodySummary.summarize(
+      '{"password":"private","nested":{"token":"secret"},"value":1}',
+      headers: {'content-type': 'application/json'},
+      config: const VigilConfig(),
+    );
+
+    expect(jsonDecode(summary.text!), {
+      'password': '[redacted]',
+      'nested': {'token': '[redacted]'},
+      'value': 1,
+    });
+    final bytes = VigilBodySummary.summarize(
+      utf8.encode('{"token":"private"}'),
+      headers: {'content-type': 'application/json'},
+      config: const VigilConfig(),
+    );
+    expect(jsonDecode(bytes.text!)['token'], '[redacted]');
+    expect(
+      VigilBodySummary.summarize(
+        '{"password":"private"',
+        headers: {'content-type': 'application/json'},
+        config: const VigilConfig(),
+      ).kind,
+      VigilBodyKind.unavailable,
+    );
+  });
+
+  test('does not treat binary byte arrays as displayable JSON', () {
+    final summary = VigilBodySummary.summarize(
+      [0, 255, 1],
+      headers: {'content-type': 'application/octet-stream'},
+      config: const VigilConfig(),
+    );
+
+    expect(summary.kind, VigilBodyKind.binary);
+    expect(summary.text, isNull);
+    expect(summary.byteLength, 3);
+  });
+
+  test('preserves numeric JSON arrays', () {
+    final summary = VigilBodySummary.summarize(
+      [1, 256],
+      headers: {'content-type': 'application/json'},
+      config: const VigilConfig(),
+    );
+    expect(summary.kind, VigilBodyKind.json);
+    expect(summary.text, '[1,256]');
+  });
+
   test('evicts old calls from ring buffer', () {
     final vigil = Vigil.instance;
     vigil.init(config: const VigilConfig(maxCalls: 1));

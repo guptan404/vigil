@@ -10,6 +10,7 @@
     "build": "npm --workspaces --if-present run build",
     "test": "npm --workspaces --if-present test",
     "check": "npm run build && npm test",
+    "test:integration": "npm run build && cd dart/vigil_backend && dart test test/protocol_integration.dart",
     "pack:check": "npm pack --dry-run --workspace @vigiljs/core --workspace @vigiljs/express"
   },
   "engines": {
