@@ -44,6 +44,26 @@ captured client call to server timing and error details through the same trace.
 | [`@vigiljs/core`](https://www.npmjs.com/package/@vigiljs/core) | npm | Node protocol, trace, timing, masking, and debug helpers |
 | [`@vigiljs/express`](https://www.npmjs.com/package/@vigiljs/express) | npm | Express middleware, error diagnostics, and ingest handler |
 
+## Install the feature branch
+
+For Flutter, use the Git repository URL, `ref: feature/debugging-workflows`,
+and `path: dart/vigil` for the `vigil` dependency. Override `vigil_core`,
+`vigil_dio`, `vigil_ui`, and `vigil_backend` with the same URL/ref and each
+package's path so every Vigil package comes from that branch.
+
+For Node, the repository root provides the Express package entry point:
+
+```json
+{
+  "dependencies": {
+    "@vigiljs/express": "git+https://github.com/guptan404/vigil.git#feature/debugging-workflows"
+  }
+}
+```
+
+Git installation builds and includes both Node packages from the resolved
+revision. Commit the application's lockfile to keep that revision reproducible.
+
 ## Flutter quick start
 
 Add the umbrella package and Dio:
