@@ -14,3 +14,5 @@ export 'src/vigil_event.dart';
 export 'src/vigil_http_error.dart';
 export 'src/vigil_http_request.dart';
 export 'src/vigil_http_response.dart';
+export 'src/vigil_call_codec.dart';
+export 'src/vigil_testing.dart';

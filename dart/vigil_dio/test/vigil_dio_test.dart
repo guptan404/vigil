@@ -102,6 +102,86 @@ void main() {
     });
   });
 
+  test('mock failures and successful responses both reach the recorder',
+      () async {
+    const origin = 'https://example.com';
+    final vigil = Vigil.instance..init();
+    final mocks = VigilMockController(allowedOrigins: {origin});
+    final dio = Dio()
+      ..interceptors.add(VigilDioInterceptor(vigil: vigil, mocks: mocks))
+      ..httpClientAdapter =
+          _Adapter((_) async => fail('Mock sent real traffic'));
+    addTearDown(dio.close);
+    mocks.put(VigilMockRule(
+      method: 'GET',
+      path: '/ok',
+      effect: VigilMockEffect.response,
+      jsonBody: '{"ok":true}',
+    ));
+    mocks.put(VigilMockRule(
+      method: 'GET',
+      path: '/error',
+      effect: VigilMockEffect.response,
+      statusCode: 503,
+    ));
+    mocks.put(VigilMockRule(
+      method: 'GET',
+      path: '/timeout',
+      effect: VigilMockEffect.timeout,
+    ));
+
+    expect(
+        (await dio.get<Map<String, dynamic>>('$origin/ok')).data, {'ok': true});
+    await expectLater(dio.get('$origin/error'), throwsA(isA<DioException>()));
+    await expectLater(dio.get('$origin/timeout'), throwsA(isA<DioException>()));
+
+    expect(vigil.calls.map((call) => call.state), [
+      VigilCallState.completed,
+      VigilCallState.failed,
+      VigilCallState.failed
+    ]);
+    expect(vigil.calls[1].response?.statusCode, 503);
+    expect(vigil.calls[2].error?.type, 'receiveTimeout');
+  });
+
+  test('replay captures a new call and refuses edited destinations', () async {
+    const origin = 'https://example.com';
+    final vigil = Vigil.instance..init();
+    final dio = Dio()
+      ..interceptors.add(VigilDioInterceptor(vigil: vigil))
+      ..httpClientAdapter = _Adapter((request) async {
+        expect(request.uri.queryParameters, {'token': 'example-token'});
+        expect(request.method, 'PATCH');
+        expect(request.followRedirects, isFalse);
+        expect(request.data, '{"enabled":true}');
+        return ResponseBody.fromString('accepted', 202);
+      });
+    addTearDown(dio.close);
+    final replay = VigilDioReplay(dio, allowedOrigins: {origin});
+    final original = Uri.parse('$origin/original');
+
+    await expectLater(
+      replay.send(VigilReplayRequest(
+        originalUri: original,
+        uri: Uri.parse('https://other.example/new'),
+        method: 'PATCH',
+        headers: const {},
+      )),
+      throwsFormatException,
+    );
+    expect(
+        await replay.send(VigilReplayRequest(
+          originalUri: original,
+          uri: Uri.parse('$origin/edited?token=example-token'),
+          method: 'PATCH',
+          headers: const {},
+          jsonBody: '{"enabled":true}',
+        )),
+        202);
+    expect(vigil.calls.single.request.uri.queryParameters,
+        {'token': '[redacted]'});
+  });
+
   test('disabled mode is a no-op', () async {
     final vigil = Vigil.instance
       ..init(config: const VigilConfig(enabled: false));

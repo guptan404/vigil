@@ -41,6 +41,7 @@ void main() {
         endpoint: baseUrl.resolve('/vigil/ingest'),
         ingestKey: 'ingest-secret',
         flushInterval: Duration.zero,
+        clientInfo: const {'device': 'test-phone'},
       ),
       vigil: vigil,
     );
@@ -65,7 +66,9 @@ void main() {
           response.headers.value('traceparent'));
       expect(captured.response!.serverTimings.map((metric) => metric.name),
           containsAll(['total', 'db']));
-      expect(captured.response!.serverDebug, isNull);
+      expect(captured.response!.serverDebug?.context['logs'], [
+        containsPair('message', 'Loaded result'),
+      ]);
       expect(captured.request.headers['Authorization'], '[redacted]');
       expect(captured.request.body.text, contains('"password":"[redacted]"'));
       expect(call['trace']['traceparent'],
@@ -75,6 +78,25 @@ void main() {
           call['request']['body']['text'], contains('"password":"[redacted]"'));
       expect(call['response']['statusCode'], 200);
       expect(connection.queuedCount, 0);
+
+      final inspector = baseUrl.resolve('/vigil/inspector');
+      final page = await http.get(inspector);
+      expect(page.statusCode, 200);
+      expect(page.headers['content-security-policy'],
+          contains("script-src 'sha256-"));
+      final captures = baseUrl.resolve('/vigil/inspector/captures');
+      final denied = await http
+          .get(captures, headers: {'Vigil-Read-Key': 'ingest-secret'});
+      expect(denied.statusCode, 403);
+      final allowed =
+          await http.get(captures, headers: {'Vigil-Read-Key': 'read-secret'});
+      final entry = (jsonDecode(allowed.body)['captures'] as List).first;
+      expect(entry['client']['device'], 'test-phone');
+      expect(entry['call']['id'], captured.id);
+      expect(
+          entry['call']['response']['serverDebug']['context']['logs'][0]
+              ['message'],
+          'Loaded result');
     } finally {
       await connection.dispose(flushPending: false);
       dio.close();
@@ -102,6 +124,9 @@ void main() {
       expect(captured.state, VigilCallState.failed);
       expect(captured.response!.statusCode, 500);
       expect(captured.response!.serverDebug?.error, 'Backend failure');
+      expect(captured.response!.serverDebug?.context['logs'], [
+        containsPair('message', 'Result missing'),
+      ]);
       expect(captured.response!.serverTimings.map((metric) => metric.name),
           contains('total'));
       await Future<void>.delayed(Duration.zero);
@@ -119,6 +144,73 @@ void main() {
     } finally {
       await connection.dispose(flushPending: false);
       dio.close();
+    }
+  });
+
+  test('Express simulations produce real Dio failures and allow recovery',
+      () async {
+    final vigil = Vigil.instance
+      ..init(config: const VigilConfig(debugKey: 'debug-secret'));
+    final dio = Dio(BaseOptions(
+      baseUrl: baseUrl.toString(),
+      receiveTimeout: const Duration(milliseconds: 100),
+    ))
+      ..interceptors.add(VigilDioInterceptor(vigil: vigil));
+    final controlUri = baseUrl.resolve('/vigil/inspector/simulation');
+    const headers = {
+      'Content-Type': 'application/json',
+      'Vigil-Control-Key': 'control-secret',
+    };
+    Future<void> simulate(Map<String, Object?> rule) async {
+      final response = await http.post(
+        controlUri,
+        headers: headers,
+        body: jsonEncode({'method': 'GET', 'path': '/ok', 'times': 1, ...rule}),
+      );
+      expect(response.statusCode, 201);
+    }
+
+    try {
+      await simulate({
+        'effect': 'httpError',
+        'statusCode': 503,
+        'body': {'error': 'Server temporarily unavailable'},
+      });
+      await expectLater(dio.get<Object?>('/ok'), throwsA(isA<DioException>()));
+      var captured = vigil.calls.last;
+      expect(captured.state, VigilCallState.failed);
+      expect(captured.response?.statusCode, 503);
+      expect(captured.response?.body.text,
+          contains('Server temporarily unavailable'));
+      expect(captured.response?.headers['vigil-simulation'], 'httpError');
+      expect(captured.response?.serverDebug?.context['logs'], [
+        containsPair('message', 'Vigil server failure simulation'),
+      ]);
+      expect(captured.request.traceContext.toHeader(),
+          captured.response?.headers['traceparent']);
+
+      await simulate({'effect': 'exception'});
+      await expectLater(dio.get<Object?>('/ok'), throwsA(isA<DioException>()));
+      expect(vigil.calls.last.response?.serverDebug?.stack,
+          contains('Vigil simulated backend exception'));
+
+      await simulate({'effect': 'disconnect'});
+      await expectLater(dio.get<Object?>('/ok'), throwsA(isA<DioException>()));
+      expect(vigil.calls.last.response, isNull);
+      expect(vigil.calls.last.state, VigilCallState.failed);
+
+      await simulate({'effect': 'timeout', 'delayMs': 500});
+      await expectLater(dio.get<Object?>('/ok'), throwsA(isA<DioException>()));
+      captured = vigil.calls.last;
+      expect(captured.error?.type, 'receiveTimeout');
+      expect(captured.response, isNull);
+
+      final recovered = await dio.get<Object?>('/ok');
+      expect(recovered.statusCode, 200);
+      expect(vigil.calls.last.state, VigilCallState.completed);
+    } finally {
+      await http.delete(controlUri, headers: headers);
+      dio.close(force: true);
     }
   });
 

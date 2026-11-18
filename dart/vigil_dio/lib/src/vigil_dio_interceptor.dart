@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:vigil_core/vigil_core.dart';
 
@@ -9,12 +12,17 @@ const _callIdExtraKey = 'vigil.callId';
 /// then parses `Server-Timing` and `Vigil-Debug` response headers.
 class VigilDioInterceptor extends Interceptor {
   /// Creates an interceptor using [vigil] or [Vigil.instance].
-  VigilDioInterceptor({Vigil? vigil}) : _vigil = vigil ?? Vigil.instance;
+  VigilDioInterceptor({Vigil? vigil, this.mocks})
+      : _vigil = vigil ?? Vigil.instance;
 
   final Vigil _vigil;
 
+  /// Optional development mock rules.
+  final VigilMockController? mocks;
+
   @override
-  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+  void onRequest(
+      RequestOptions options, RequestInterceptorHandler handler) async {
     if (!_vigil.enabled) {
       handler.next(options);
       return;
@@ -34,7 +42,7 @@ class VigilDioInterceptor extends Interceptor {
     final callId = _vigil.startCall(
       VigilHttpRequest(
         method: options.method,
-        uri: options.uri,
+        uri: _capturedUri(options.uri),
         headers: headers,
         body: _summarizeBody(options.data, headers),
         timestamp: DateTime.now(),
@@ -42,7 +50,64 @@ class VigilDioInterceptor extends Interceptor {
       ),
     );
     options.extra[_callIdExtraKey] = callId;
-    handler.next(options);
+    final rule = mocks?.match(options.method.toUpperCase(), options.uri);
+    if (rule == null) {
+      handler.next(options);
+      return;
+    }
+    await Future<void>.delayed(rule.delay);
+    if (options.cancelToken?.isCancelled ?? false) {
+      handler.reject(options.cancelToken!.cancelError!, true);
+      return;
+    }
+    switch (rule.effect) {
+      case VigilMockEffect.delay:
+        handler.next(options);
+      case VigilMockEffect.timeout:
+      case VigilMockEffect.connectionError:
+        handler.reject(
+            DioException(
+              requestOptions: options,
+              type: rule.effect == VigilMockEffect.timeout
+                  ? DioExceptionType.receiveTimeout
+                  : DioExceptionType.connectionError,
+              message: 'Simulated by Vigil',
+            ),
+            true);
+      case VigilMockEffect.response:
+        final body =
+            rule.statusCode == 204 || options.method.toUpperCase() == 'HEAD'
+                ? ''
+                : rule.jsonBody;
+        final headers = {
+          'content-type': [Headers.jsonContentType],
+          'vigil-mock': ['true'],
+        };
+        final data = switch (options.responseType) {
+          ResponseType.json => body.isEmpty ? null : jsonDecode(body),
+          ResponseType.plain => body,
+          ResponseType.bytes => Uint8List.fromList(utf8.encode(body)),
+          ResponseType.stream =>
+            ResponseBody.fromString(body, rule.statusCode, headers: headers),
+        };
+        final response = Response<Object?>(
+          requestOptions: options,
+          data: data,
+          statusCode: rule.statusCode,
+          headers: Headers.fromMap(headers),
+        );
+        if (options.validateStatus(rule.statusCode)) {
+          handler.resolve(response, true);
+        } else {
+          handler.reject(
+              DioException.badResponse(
+                statusCode: rule.statusCode,
+                requestOptions: options,
+                response: response,
+              ),
+              true);
+        }
+    }
   }
 
   @override
@@ -70,6 +135,21 @@ class VigilDioInterceptor extends Interceptor {
       );
     }
     handler.next(err);
+  }
+
+  Uri _capturedUri(Uri uri) {
+    final query = uri.queryParametersAll;
+    final masked = _vigil.config.maskQueryParameters;
+    final hasSensitiveQuery =
+        query.keys.any((name) => masked.contains(name.toLowerCase()));
+    final safeUri = uri.userInfo.isEmpty ? uri : uri.replace(userInfo: '');
+    if (!hasSensitiveQuery) return safeUri;
+    return safeUri.replace(queryParameters: {
+      for (final entry in query.entries)
+        entry.key: masked.contains(entry.key.toLowerCase())
+            ? entry.value.map((_) => '[redacted]').toList()
+            : entry.value,
+    });
   }
 
   VigilHttpResponse _responseFromDio(Response response) {

@@ -1,10 +1,14 @@
+import type { VigilFailureSimulation } from "./simulation.js";
 import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Response } from "express";
 import {
   encodeDebugPayload,
   generateTraceparent,
+  maskObject,
   parseTraceparent,
   serializeServerTiming,
   type ServerTimingMetric,
+  type VigilDebugPayload,
+  type DebugEncodeOptions,
 } from "@vigiljs/core";
 
 /** Configuration shared by Vigil request and error middleware. */
@@ -16,6 +20,8 @@ export interface VigilExpressConfig {
   maskHeaders?: string[];
   maskBodyFields?: string[];
   headerLimitBytes?: number;
+  /** Optional code-level failure points for development. */
+  simulation?: VigilFailureSimulation;
 }
 
 /** Configuration for the optional client-call ingest route. */
@@ -45,8 +51,21 @@ export interface VigilMemorySink {
   clear(): void;
 }
 
+export interface VigilRequestLog {
+  timestamp: string;
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
+  fields?: Record<string, unknown>;
+}
+
 /** Per-request trace and timing API attached to Express requests. */
 export interface VigilRequestContext {
+  /** Adds an explicit request-scoped log entry for an authorized debug response. */
+  log(level: "debug" | "info" | "warn" | "error", message: string, fields?: Record<string, unknown>): void;
+  /** Bounded entries captured before response headers are sent. */
+  readonly logs: readonly VigilRequestLog[];
+  /** Throws an armed operation error inside the current application call stack. */
+  failPoint(name: string): void;
   traceparent: string;
   timings: ServerTimingMetric[];
   time<T>(name: string, description: string, fn: () => Promise<T> | T): Promise<T>;
@@ -76,11 +95,31 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
     const incomingTrace = req.header("traceparent");
     const traceparent = parseTraceparent(incomingTrace) ? incomingTrace! : generateTraceparent();
     const timings: ServerTimingMetric[] = [];
+    const logs: VigilRequestLog[] = [];
+    const debugAllowed = !!config.debugKey && req.header("Vigil-Key") === config.debugKey;
+    const maskedFields = new Set((config.maskBodyFields ?? []).map((name) => name.toLowerCase()));
     const requestStartedAt = process.hrtime.bigint();
 
     req.vigil = {
       traceparent,
       timings,
+      logs,
+      failPoint(name) { config.simulation?.failPoint(req, name); },
+      log(level, message, fields) {
+        if (!debugAllowed || res.headersSent || logs.length >= 20) return;
+        const entry: VigilRequestLog = {
+          timestamp: new Date().toISOString(), level, message: message.slice(0, 300),
+        };
+        if (fields) {
+          try {
+            const candidate = maskObject(fields, maskedFields) as Record<string, unknown>;
+            if (Buffer.byteLength(JSON.stringify(candidate)) <= 512) entry.fields = candidate;
+          } catch {
+            // Logging must not interrupt the application request.
+          }
+        }
+        logs.push(entry);
+      },
       async time<T>(name: string, description: string, fn: () => Promise<T> | T): Promise<T> {
         const start = process.hrtime.bigint();
         try {
@@ -110,18 +149,18 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
         if (header) res.setHeader("Server-Timing", header);
       }
       if (
-        statusCode >= 400 &&
-        config.debugKey &&
-        req.header("Vigil-Key") === config.debugKey &&
+        (statusCode >= 400 || logs.length > 0) &&
+        debugAllowed &&
         !res.hasHeader("Vigil-Debug")
       ) {
-        res.setHeader("Vigil-Debug", encodeDebugPayload({
-          error: `HTTP ${statusCode}`,
+        res.setHeader("Vigil-Debug", encodeRequestDebug({
+          error: statusCode >= 400 ? `HTTP ${statusCode}` : undefined,
           context: {
             method: req.method,
             path: req.path,
             statusCode,
             traceparent,
+            ...(logs.length > 0 ? { logs } : {}),
           },
         }, {
           maxBytes: config.headerLimitBytes ?? 8192,
@@ -153,7 +192,7 @@ export function vigilErrorHandler(config: VigilExpressConfig = {}): ErrorRequest
     if (enabled && debugKey && req.header("Vigil-Key") === debugKey) {
       res.setHeader(
         "Vigil-Debug",
-        encodeDebugPayload(
+        encodeRequestDebug(
           {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
@@ -161,6 +200,7 @@ export function vigilErrorHandler(config: VigilExpressConfig = {}): ErrorRequest
               method: req.method,
               path: req.path,
               traceparent: req.vigil?.traceparent,
+              ...(req.vigil?.logs.length ? { logs: req.vigil.logs } : {}),
             },
           },
           {
@@ -248,6 +288,25 @@ export function createMemoryVigilSink(maxBatches = 100, maxCalls = 1000): VigilM
   };
 }
 
+function encodeRequestDebug(payload: VigilDebugPayload, options: DebugEncodeOptions): string {
+  const logs = payload.context?.logs;
+  if (!Array.isArray(logs) || logs.length === 0) return encodeDebugPayload(payload, options);
+  for (let count = logs.length; count > 0; count--) {
+    const encoded = encodeDebugPayload({
+      ...payload,
+      context: { ...payload.context, logs: logs.slice(0, count) },
+      truncated: count < logs.length,
+    }, options);
+    if (encoded && JSON.parse(Buffer.from(encoded, "base64url").toString()).context) {
+      return encoded;
+    }
+  }
+  const { logs: _logs, ...context } = payload.context!;
+  return encodeDebugPayload({ ...payload, context, truncated: true }, options);
+}
+
+export { vigilInspectorRouter, type VigilInspectorConfig } from "./inspector.js";
+
 function isEnabled(config: VigilExpressConfig): boolean {
   return config.enabled ?? process.env.NODE_ENV !== "production";
 }
@@ -279,6 +338,9 @@ function createNoopContext(traceparent = ""): VigilRequestContext {
   return {
     traceparent,
     timings: [],
+    logs: [],
+    failPoint() {},
+    log() {},
     async time<T>(_name: string, _description: string, fn: () => Promise<T> | T): Promise<T> {
       return await fn();
     },
@@ -296,3 +358,5 @@ function patchWriteHead(res: Response, beforeWrite: (statusCode: number) => void
     return original(...args);
   }) as Response["writeHead"];
 }
+
+export { VigilFailureSimulation, type VigilFailureSimulationConfig, type VigilFailureRule, type VigilFailureRuleInput, type VigilFailureEffect } from "./simulation.js";

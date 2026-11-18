@@ -13,6 +13,16 @@ class VigilConfig {
       'set-cookie',
       'vigil-key',
     },
+    this.maskQueryParameters = const {
+      'password',
+      'token',
+      'access_token',
+      'refresh_token',
+      'secret',
+      'api_key',
+      'apikey',
+      'signature',
+    },
     this.maskBodyFields = const {
       'password',
       'token',
@@ -45,4 +55,7 @@ class VigilConfig {
 
   /// Lowercase JSON field names whose captured values are redacted.
   final Set<String> maskBodyFields;
+
+  /// Lowercase query parameter names redacted before capture.
+  final Set<String> maskQueryParameters;
 }

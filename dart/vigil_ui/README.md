@@ -55,4 +55,12 @@ The overlay respects system insets for content while painting its background
 edge-to-edge. Disable the overlay in production unless its captured data and
 access model have been explicitly reviewed.
 Review cURL and lifecycle JSON before sharing: configured headers and JSON
-body fields are masked, but URLs can contain sensitive query parameters.
+body fields are masked, along with configured query parameters. URL paths
+and unconfigured fields can still contain sensitive values.
+
+Use **Advanced filters** beside search to combine host, HTTP method, status
+range, and duration. Complete JSON bodies expand into searchable fields with
+copyable JSON paths. **Compare** in request details shows changes between two
+captures. **Inspector tools → Debug sessions** saves named captures locally,
+with notes and clipboard import/export. Pass `replay` or `mocks` to the overlay
+or inspector to enable the corresponding development tools.

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:vigil_core/vigil_core.dart';
 
 import 'vigil_inspector.dart';
 
@@ -20,6 +21,8 @@ class VigilOverlay extends StatefulWidget {
     this.shakeThreshold = 18,
     this.shakeCooldown = const Duration(seconds: 2),
     this.shakeEvents,
+    this.replay,
+    this.mocks,
   });
 
   /// Application content rendered below the inspector.
@@ -42,6 +45,12 @@ class VigilOverlay extends StatefulWidget {
 
   /// Optional acceleration stream, primarily useful for tests or custom input.
   final Stream<UserAccelerometerEvent>? shakeEvents;
+
+  /// Optional app-provided development transport for replay.
+  final VigilReplay? replay;
+
+  /// Optional rules shared with the app's Dio interceptor.
+  final VigilMockController? mocks;
 
   @override
   State<VigilOverlay> createState() => _VigilOverlayState();
@@ -81,13 +90,20 @@ class _VigilOverlayState extends State<VigilOverlay> {
     return Stack(
       children: [
         widget.child,
-        if (_isInspectorOpen) _InspectorPanel(onClose: _closeInspector),
+        if (_isInspectorOpen)
+          _InspectorPanel(
+              onClose: _closeInspector,
+              replay: widget.replay,
+              mocks: widget.mocks),
         if (widget.showFloatingButton && !_isInspectorOpen)
           Positioned(
             right: 16,
             bottom: 24,
             child: SafeArea(
               child: FloatingActionButton.small(
+                tooltip: Overlay.maybeOf(context) == null
+                    ? null
+                    : 'Open network inspector',
                 onPressed: _openInspector,
                 child: const Icon(Icons.network_check),
               ),
@@ -140,9 +156,11 @@ class _VigilOverlayState extends State<VigilOverlay> {
 }
 
 class _InspectorPanel extends StatelessWidget {
-  const _InspectorPanel({required this.onClose});
+  const _InspectorPanel({required this.onClose, this.replay, this.mocks});
 
   final VoidCallback onClose;
+  final VigilReplay? replay;
+  final VigilMockController? mocks;
 
   @override
   Widget build(BuildContext context) {
@@ -150,7 +168,8 @@ class _InspectorPanel extends StatelessWidget {
       child: HeroControllerScope.none(
         child: Navigator(
           onGenerateRoute: (_) => MaterialPageRoute<void>(
-            builder: (_) => VigilInspector(onClose: onClose),
+            builder: (_) =>
+                VigilInspector(onClose: onClose, replay: replay, mocks: mocks),
           ),
         ),
       ),

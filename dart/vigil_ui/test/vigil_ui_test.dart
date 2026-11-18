@@ -5,10 +5,143 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 import 'package:vigil_core/vigil_core.dart';
 import 'package:vigil_ui/vigil_ui.dart';
 
 void main() {
+  testWidgets('searches JSON by field and compares completed requests',
+      (tester) async {
+    tester.view.physicalSize = const Size(1150, 950);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final vigil = Vigil.instance..init();
+    final time = DateTime(2026, 1, 1);
+    for (final (path, status, body) in [
+      ('/earlier', 201, '{"nested":{"field":1},"unrelated":true}'),
+      ('/later', 202, '{"nested":{"field":2},"unrelated":true}'),
+    ]) {
+      final id = vigil.startCall(VigilHttpRequest(
+        method: 'PATCH',
+        uri: Uri.parse('https://example.com$path'),
+        headers: const {},
+        body: VigilBodySummary.empty,
+        timestamp: time,
+        traceContext: VigilTraceContext.generate(),
+      ));
+      vigil.completeCall(
+          id,
+          VigilHttpResponse(
+            statusCode: status,
+            headers: const {},
+            body: VigilBodySummary(kind: VigilBodyKind.json, text: body),
+            timestamp: time.add(const Duration(milliseconds: 250)),
+          ));
+    }
+    await tester.pumpWidget(MaterialApp(home: VigilInspector(vigil: vigil)));
+
+    await tester.tap(find.widgetWithText(Tab, 'Response'));
+    await tester.pumpAndSettle();
+    final search =
+        find.widgetWithText(TextField, 'Search JSON fields or values');
+    await tester.ensureVisible(search);
+    await tester.enterText(search, 'field');
+    await tester.pumpAndSettle();
+    expect(find.text('field: 2'), findsOneWidget);
+    String? copied;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied = (call.arguments as Map)['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(() =>
+        messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+    final field = find
+        .ancestor(of: find.text('field: 2'), matching: find.byType(Row))
+        .first;
+    await tester.tap(
+        find.descendant(of: field, matching: find.byTooltip('Copy JSON path')));
+    await tester.pump();
+    expect(copied, r'$["nested"]["field"]');
+    expect(find.text('unrelated: true'), findsNothing);
+
+    await tester.tap(find.text('Compare'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('PATCH /earlier'));
+    await tester.pumpAndSettle();
+    expect(find.text('Request comparison'), findsOneWidget);
+    expect(find.text('Response body["nested"]["field"]'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Advanced filters'));
+    await tester.pumpAndSettle();
+    final minimum = find.widgetWithText(TextFormField, 'Minimum status');
+    await tester.enterText(minimum, '202');
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+    expect(find.text('/earlier'), findsNothing);
+    expect(find.byTooltip('Advanced filters active'), findsOneWidget);
+  });
+
+  testWidgets('reopens a saved session after the live recorder is cleared',
+      (tester) async {
+    final previous = SharedPreferencesAsyncPlatform.instance;
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.empty();
+    addTearDown(() => SharedPreferencesAsyncPlatform.instance = previous);
+    final vigil = Vigil.instance..init();
+    final time = DateTime(2026, 1, 1);
+    final id = vigil.startCall(VigilHttpRequest(
+      method: 'GET',
+      uri: Uri.parse('https://example.com/checkout'),
+      headers: const {},
+      body: VigilBodySummary.empty,
+      timestamp: time,
+      traceContext: VigilTraceContext.generate(),
+    ));
+    vigil.completeCall(
+        id,
+        VigilHttpResponse(
+          statusCode: 429,
+          headers: const {},
+          body: VigilBodySummary.empty,
+          timestamp: time.add(const Duration(milliseconds: 20)),
+        ));
+
+    await tester.pumpWidget(MaterialApp(home: VigilInspector(vigil: vigil)));
+    Future<void> openSessions() async {
+      await tester.tap(find.byTooltip('Inspector tools'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Debug sessions'));
+      await tester.pumpAndSettle();
+    }
+
+    await openSessions();
+    await tester.tap(find.text('Save current capture'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Session name'), 'Checkout test');
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    vigil.clear();
+    await tester.pumpAndSettle();
+    await openSessions();
+    await tester.tap(find.text('Checkout test'));
+    await tester.pumpAndSettle();
+    expect(find.text('/checkout'), findsOneWidget);
+    expect(find.text('429'), findsOneWidget);
+  });
+
   testWidgets('overlay hides launcher button by default', (tester) async {
     Vigil.instance.init();
 

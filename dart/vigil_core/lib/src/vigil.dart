@@ -101,7 +101,8 @@ class Vigil {
 
   String _newId() {
     final micros = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
-    final suffix = _idRandom.nextInt(1 << 32).toRadixString(16).padLeft(8, '0');
+    final suffix =
+        _idRandom.nextInt(0x100000000).toRadixString(16).padLeft(8, '0');
     return '$micros$suffix';
   }
 }
