@@ -30,6 +30,12 @@ class VigilDioInterceptor extends Interceptor {
 
     final trace = VigilTraceContext.generate();
     options.headers['traceparent'] = trace.toHeader();
+    options.headers.removeWhere((name, _) => const {
+          'vigil-session-id',
+          'vigil-device-type'
+        }.contains(name.toLowerCase()));
+    options.headers['Vigil-Session-Id'] = _vigil.session.id;
+    options.headers['Vigil-Device-Type'] = _vigil.session.deviceType;
     final debugKey = _vigil.config.debugKey;
     if (debugKey != null && debugKey.isNotEmpty) {
       options.headers['Vigil-Key'] = debugKey;
@@ -47,6 +53,7 @@ class VigilDioInterceptor extends Interceptor {
         body: _summarizeBody(options.data, headers),
         timestamp: DateTime.now(),
         traceContext: trace,
+        session: _vigil.session,
       ),
     );
     options.extra[_callIdExtraKey] = callId;

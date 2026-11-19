@@ -165,7 +165,7 @@ timeout or connection failure, or delay and forward the original request.
 
 The desktop inspector can enable named failure points inside Express
 application code. In the example, open `/vigil/inspector`, connect with
-`dev-vigil-read`, expand **Express failure simulation**, and enter
+`dev-vigil-read`, select the frontend device session, expand **Express failure simulation**, and enter
 `dev-vigil-control`. Choose `GET /ok`, failure location **users.lookup**,
 and request count 1, then click **Enable rule**.
 
@@ -269,6 +269,44 @@ app.post("/vigil/ingest", vigilIngestHandler({
 The built-in memory sink is intended for development and tests. Production
 retention needs a bounded, access-controlled store designed for your data.
 
+## Device sessions
+
+Vigil creates a fresh session ID when initialized. The Dio interceptor sends
+`Vigil-Session-Id` and `Vigil-Device-Type` with captured requests. The uploader
+automatically includes the same session ID, device type, and session start time
+in each batch. You can copy the ID from the Flutter inspector.
+
+Device type is detected from the runtime, such as Android, iOS, web, macOS,
+Windows, or Linux. Optionally give your development device a friendly name:
+
+```dart
+Vigil.instance.init(
+  config: VigilConfig(
+    enabled: kDebugMode,
+    session: VigilSession.create(deviceName: 'QA phone'),
+  ),
+);
+```
+
+The ID stays the same when you clear captured calls. A new initialization
+starts a new session. To supply your own ID, use `VigilSession.create(sessionId:
+yourId)` in `VigilConfig.session`. The uploader owns session fields in
+`clientInfo` so request headers and uploaded metadata stay consistent.
+
+The desktop inspector opens with a device session list. Each card shows its
+device, ID, app, last activity, and request/failure counts. Select a session to
+monitor its captured requests and configure failures for that session.
+Rules created in the desktop inspector apply only to requests carrying that
+session's ID. Another device calling the same endpoint is unaffected.
+
+Enable `includePendingCalls: true` in `VigilBackendConfig` to upload request
+starts as well as completions. The desktop updates each request's lifecycle
+without counting it twice. Sessions and captures follow the memory sink's
+retention limits.
+
+For cross-origin Flutter Web requests, allow `Vigil-Session-Id` and
+`Vigil-Device-Type` in your server's CORS request headers.
+
 ## Desktop browser inspector
 
 Mount the router with the same sink used by the ingest handler and a separate
@@ -284,11 +322,10 @@ app.use("/vigil/inspector", vigilInspectorRouter({
 ```
 
 Open `/vigil/inspector` on that server, enter the read key, and make a request
-from the app. The inspector refreshes recent uploads and lets you search by URL,
-method, status, or trace ID and filter by `clientInfo.device` or
-`clientInfo.sessionId`. The example serves the inspector at
-`http://localhost:4010/vigil/inspector` with the local demo read key
-`dev-vigil-read`.
+from the app. Choose a device session to see its requests, then search by URL,
+method, status, or trace ID. **All sessions** returns to the device list.
+The example serves the inspector at `http://localhost:4010/vigil/inspector`
+with the local demo read key `dev-vigil-read`.
 
 ## Security model
 

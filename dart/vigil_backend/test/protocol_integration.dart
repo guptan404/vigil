@@ -62,6 +62,15 @@ void main() {
 
       expect(response.statusCode, 200);
       expect(captured.state, VigilCallState.completed);
+      expect(captured.request.headers['Vigil-Session-Id'], vigil.session.id);
+      final sessionsResponse = await http.get(
+        baseUrl.resolve('/vigil/inspector/sessions'),
+        headers: {'Vigil-Read-Key': 'read-secret'},
+      );
+      final session =
+          (jsonDecode(sessionsResponse.body)['sessions'] as List).first;
+      expect(session['sessionId'], vigil.session.id);
+      expect(session['deviceType'], vigil.session.deviceType);
       expect(captured.request.traceContext.toHeader(),
           response.headers.value('traceparent'));
       expect(captured.response!.serverTimings.map((metric) => metric.name),
@@ -84,7 +93,9 @@ void main() {
       expect(page.statusCode, 200);
       expect(page.headers['content-security-policy'],
           contains("script-src 'sha256-"));
-      final captures = baseUrl.resolve('/vigil/inspector/captures');
+      final captures = baseUrl
+          .resolve('/vigil/inspector/captures')
+          .replace(queryParameters: {'sessionId': vigil.session.id});
       final denied = await http
           .get(captures, headers: {'Vigil-Read-Key': 'ingest-secret'});
       expect(denied.statusCode, 403);
@@ -156,7 +167,9 @@ void main() {
       receiveTimeout: const Duration(milliseconds: 100),
     ))
       ..interceptors.add(VigilDioInterceptor(vigil: vigil));
-    final controlUri = baseUrl.resolve('/vigil/inspector/simulation');
+    final controlUri = baseUrl
+        .resolve('/vigil/inspector/simulation')
+        .replace(queryParameters: {'sessionId': vigil.session.id});
     const headers = {
       'Content-Type': 'application/json',
       'Vigil-Control-Key': 'control-secret',
@@ -165,7 +178,13 @@ void main() {
       final response = await http.post(
         controlUri,
         headers: headers,
-        body: jsonEncode({'method': 'GET', 'path': '/ok', 'times': 1, ...rule}),
+        body: jsonEncode({
+          'method': 'GET',
+          'path': '/ok',
+          'times': 1,
+          'sessionId': vigil.session.id,
+          ...rule
+        }),
       );
       expect(response.statusCode, 201);
     }

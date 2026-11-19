@@ -44,3 +44,8 @@ as a development gate and keep backend diagnostics disabled in production.
 
 For Flutter Web, expose `Server-Timing`, `traceparent`, and `Vigil-Debug` through
 your backend CORS configuration.
+
+Enabled capture also adds `Vigil-Session-Id` and `Vigil-Device-Type`.
+These identify the current Vigil app run and match the uploader's device
+session metadata. Session-scoped Express rules match this header. Allow both
+headers in CORS for Flutter Web.

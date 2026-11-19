@@ -1,3 +1,5 @@
+import 'vigil_session.dart';
+
 /// Controls capture, retention, masking, and gated diagnostics.
 class VigilConfig {
   /// Creates a Vigil configuration.
@@ -7,6 +9,7 @@ class VigilConfig {
     this.maxBodyBytes = 64 * 1024,
     this.captureBody = true,
     this.debugKey,
+    this.session,
     this.maskHeaders = const {
       'authorization',
       'cookie',
@@ -49,6 +52,9 @@ class VigilConfig {
 
   /// Optional value sent as `Vigil-Key` to request gated backend diagnostics.
   final String? debugKey;
+
+  /// Optional session identity. A fresh platform-aware identity is created at init.
+  final VigilSession? session;
 
   /// Lowercase HTTP header names whose captured values are redacted.
   final Set<String> maskHeaders;

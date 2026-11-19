@@ -1,3 +1,4 @@
+import { desktopCaptures, desktopSessions, isVigilSessionId } from "./sessions.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { Router, json } from "express";
 import type { RequestHandler } from "express";
@@ -48,11 +49,12 @@ export function vigilInspectorRouter(config: VigilInspectorConfig): Router {
   };
   router.get("/simulation", authorizeRead, (_req, res) => {
     const simulation = config.simulation;
+    const sessionId = reqSessionId(_req.query.sessionId);
     res.json({
       enabled: simulation?.enabled ?? false,
       allowedPaths: simulation?.allowedPaths ?? [],
       failurePoints: simulation?.failurePoints ?? [],
-      rules: simulation?.list() ?? [],
+      rules: sessionId ? simulation?.list().filter(rule => rule.sessionId === sessionId) ?? [] : [],
     });
   });
   router.use("/simulation", (req, res, next) => {
@@ -68,37 +70,56 @@ export function vigilInspectorRouter(config: VigilInspectorConfig): Router {
   });
   router.post("/simulation", json({ limit: "80kb" }), (req, res) => {
     try {
+      if (!isVigilSessionId(req.body?.sessionId)) {
+        res.status(400).json({ error: "Select a frontend session before enabling a rule." });
+        return;
+      }
       res.status(201).json(config.simulation!.put(req.body));
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid rule" });
     }
   });
   router.delete("/simulation/:id", (req, res) => {
-    res.sendStatus(config.simulation!.remove(req.params.id as string) ? 204 : 404);
+    const sessionId = reqSessionId(req.query.sessionId);
+    const rule = config.simulation!.list().find(item => item.id === req.params.id && item.sessionId === sessionId);
+    res.sendStatus(rule && sessionId && config.simulation!.remove(rule.id) ? 204 : 404);
   });
-  router.delete("/simulation", (_req, res) => {
-    config.simulation!.clear();
+  router.delete("/simulation", (req, res) => {
+    const sessionId = reqSessionId(req.query.sessionId);
+    if (!sessionId) {
+      res.status(400).json({ error: "Select a frontend session before removing rules." });
+      return;
+    }
+    config.simulation!.clear(sessionId);
     res.sendStatus(204);
   });
+  router.get("/sessions", authorizeRead, (_req, res) => {
+    res.json({ sessions: desktopSessions(desktopCaptures(config.sink)) });
+  });
   router.get("/captures", authorizeRead, (_req, res) => {
+    const sessionId = reqSessionId(_req.query.sessionId);
+    if (!sessionId) {
+      res.json({ captures: [] });
+      return;
+    }
     const captures: string[] = [];
-    const retained = new Set(config.sink.calls);
     let bytes = 0;
-    for (const batch of config.sink.batches.slice().reverse()) {
-      for (const call of batch.calls.slice().reverse()) {
-        if (!retained.has(call)) continue;
-        const encoded = JSON.stringify({ client: batch.client, sentAt: batch.sentAt, call });
-        const size = Buffer.byteLength(encoded);
-        if (bytes + size > 2 * 1024 * 1024) continue;
-        captures.push(encoded);
-        bytes += size;
-        if (captures.length >= 200) break;
-      }
+    for (const capture of desktopCaptures(config.sink)) {
+      if (capture.client?.sessionId !== sessionId) continue;
+      const encoded = JSON.stringify(capture);
+      const size = Buffer.byteLength(encoded);
+      if (bytes + size > 2 * 1024 * 1024) continue;
+      captures.push(encoded);
+      bytes += size;
       if (captures.length >= 200) break;
     }
     res.type("json").send(`{"captures":[${captures.join(",")}]}`);
   });
   return router;
+}
+
+function reqSessionId(value: unknown): string | undefined {
+  return isVigilSessionId(value) ? value : undefined;
 }
 
 const script = `
@@ -138,6 +159,113 @@ copyDetail.onclick = async () => {
   }
 };
 let captures = [];
+let sessions = [];
+let selectedSessionId = "";
+let viewGeneration = 0;
+const sessionCards = byId("session-list");
+const sessionHeading = byId("session-heading");
+const sessionDescription = byId("session-description");
+const workspace = byId("workspace");
+const sessionActions = byId("session-actions");
+const simulationScope = byId("simulation-scope");
+const backSessions = byId("back-sessions");
+const copySession = byId("copy-session");
+let simulationAvailable = false;
+
+function sessionLabel(session) {
+  return session.deviceName || ({
+    android: "Android device", ios: "iOS device", web: "Web browser",
+    macos: "macOS desktop", windows: "Windows desktop", linux: "Linux desktop",
+  })[session.deviceType] || session.deviceType || "Unknown device";
+}
+
+function renderSessions() {
+  const active = sessions.find(session => session.sessionId === selectedSessionId);
+  if (selectedSessionId && !active) {
+    selectedSessionId = "";
+    captures = [];
+    viewGeneration++;
+    lastPayload = "";
+    simulationPayload = "";
+    failurePanel.open = false;
+  }
+  device.replaceChildren(new Option("Select a session", ""),
+    ...sessions.map(session => new Option(
+      sessionLabel(session) + " · " + session.sessionId.slice(0, 8), session.sessionId)));
+  device.value = selectedSessionId;
+  query.disabled = !selectedSessionId;
+  workspace.hidden = !selectedSessionId;
+  sessionCards.hidden = !!selectedSessionId;
+  sessionActions.hidden = !selectedSessionId;
+  failurePanel.hidden = !selectedSessionId || !simulationAvailable;
+  if (active) {
+    sessionHeading.textContent = sessionLabel(active);
+    sessionDescription.textContent = [
+      active.app, active.deviceType, "Session " + active.sessionId,
+    ].filter(Boolean).join(" · ");
+    simulationScope.textContent = "Applies to " + sessionLabel(active) + " · " + active.sessionId;
+    return;
+  }
+  sessionHeading.textContent = "Device sessions";
+  sessionDescription.textContent = readKey
+    ? "Choose a session to monitor its requests and test its failure cases."
+    : "Connect to monitor your frontend device sessions.";
+  sessionCards.replaceChildren(...sessions.map(session => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "session-card";
+    const type = document.createElement("small");
+    type.textContent = (session.app || "Frontend") + " · " + session.deviceType;
+    const name = document.createElement("strong");
+    name.textContent = sessionLabel(session);
+    const identity = document.createElement("code");
+    identity.textContent = session.sessionId;
+    const metrics = document.createElement("span");
+    metrics.textContent = session.requestCount + " request(s) · " + session.failedCount + " failed";
+    const seen = document.createElement("small");
+    seen.textContent = session.lastSeenAt
+      ? "Last seen " + new Date(session.lastSeenAt).toLocaleString() : "No recent requests";
+    card.append(type, name, identity, metrics, seen);
+    card.onclick = () => selectSession(session.sessionId);
+    return card;
+  }));
+  if (!sessions.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = readKey
+      ? "Waiting for a frontend session. Make a request in your app to register it here."
+      : "Enter the inspector read key to discover sessions.";
+    sessionCards.append(empty);
+  }
+}
+
+function selectSession(id) {
+  viewGeneration++;
+  selectedSessionId = id;
+  selected = "";
+  captures = [];
+  lastPayload = "";
+  simulationPayload = "";
+  failurePointsInitialized = false;
+  failureRules.replaceChildren();
+  failureStatus.textContent = "";
+  failurePanel.open = false;
+  query.value = "";
+  renderSessions();
+  render();
+  if (readKey) refresh(generation);
+}
+
+backSessions.onclick = () => selectSession("");
+copySession.onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(selectedSessionId);
+    copySession.textContent = "Copied";
+    setTimeout(() => { copySession.textContent = "Copy session ID"; }, 1500);
+  } catch {
+    status.textContent = "Select the session ID above to copy it.";
+  }
+};
 let selected = "";
 let generation = 0;
 let timer;
@@ -150,6 +278,10 @@ const failureRules = byId("failure-rules");
 const failureStatus = byId("failure-status");
 const failureForm = byId("failure-form");
 const controlKey = byId("control-key");
+
+function scopedPath(suffix, sessionId = selectedSessionId) {
+  return apiPath(suffix) + "?sessionId=" + encodeURIComponent(sessionId);
+}
 
 function apiPath(suffix) {
   return location.pathname.replace(/\\/$/, "") + suffix;
@@ -167,7 +299,8 @@ function failureDescription(rule) {
 }
 
 function renderFailures(state) {
-  failurePanel.hidden = !state.enabled;
+  simulationAvailable = state.enabled;
+  failurePanel.hidden = !selectedSessionId || !state.enabled;
   byId("rule-count").textContent = state.rules.length ? String(state.rules.length) : "";
   byId("clear-failures").disabled = state.rules.length === 0;
   const path = byId("failure-path");
@@ -199,13 +332,13 @@ function renderFailures(state) {
   }));
 }
 
-async function loadFailures(id) {
-  const response = await fetch(apiPath("/simulation"), {
+async function loadFailures(id, version = viewGeneration) {
+  const response = await fetch(scopedPath("/simulation"), {
     headers: { "Vigil-Read-Key": readKey }, cache: "no-store",
   });
   if (!response.ok) throw new Error("Unable to load failure rules.");
   const payload = await response.text();
-  if (id !== generation) return;
+  if (id !== generation || version !== viewGeneration) return;
   if (payload !== simulationPayload) {
     simulationPayload = payload;
     renderFailures(JSON.parse(payload));
@@ -215,7 +348,7 @@ async function loadFailures(id) {
 let updatingFailure = false;
 async function changeFailure(method, path, body) {
   if (updatingFailure) return;
-  if (!readKey) {
+  if (!readKey || !selectedSessionId) {
     failureStatus.textContent = "Connect to the inspector first.";
     return;
   }
@@ -224,24 +357,25 @@ async function changeFailure(method, path, body) {
     return;
   }
   const id = generation;
+  const version = viewGeneration;
   updatingFailure = true;
   byId("enable-rule").disabled = true;
   failureStatus.textContent = "Applying change…";
   try {
-    const response = await fetch(apiPath(path), {
+    const response = await fetch(scopedPath(path), {
       method,
       headers: { "Content-Type": "application/json", "Vigil-Control-Key": controlKey.value },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (id !== generation) return;
+    if (id !== generation || version !== viewGeneration) return;
     if (!response.ok) {
       const message = await response.json().catch(() => null);
       throw new Error(message?.error ?? "Unable to change the failure rule.");
     }
     failureStatus.textContent = method === "POST" ? "Rule enabled on the Express server." : "Rule removed.";
-    await loadFailures(id);
+    await loadFailures(id, version);
   } catch (error) {
-    if (id === generation) failureStatus.textContent = error.message;
+    if (id === generation && version === viewGeneration) failureStatus.textContent = error.message;
   } finally {
     updatingFailure = false;
     byId("enable-rule").disabled = false;
@@ -253,6 +387,7 @@ failureForm.onsubmit = event => {
   const effect = byId("failure-effect").value;
   try {
     const rule = {
+      sessionId: selectedSessionId,
       method: byId("failure-method").value.trim().toUpperCase(),
       path: byId("failure-path").value,
       effect,
@@ -309,20 +444,16 @@ function clientLabel(item) {
 }
 
 function identity(item) {
-  return JSON.stringify([clientLabel(item), item.call.id, item.call.startedAt]);
+  return JSON.stringify([item.client?.sessionId, item.call.id, item.call.startedAt]);
 }
 
 function render() {
-  const currentDevice = device.value;
-  const labels = [...new Set(captures.map(clientLabel))].sort();
-  device.replaceChildren(new Option("All devices", ""), ...labels.map(label => new Option(label, label)));
-  if (labels.includes(currentDevice)) device.value = currentDevice;
   const terms = query.value.trim().toLowerCase();
   const rows = captures.filter(item => {
     const call = item.call;
     const text = [call.request?.method, call.request?.url, call.response?.statusCode,
       call.trace?.traceId, call.state, clientLabel(item)].join(" ").toLowerCase();
-    return (!device.value || clientLabel(item) === device.value) && text.includes(terms);
+    return item.client?.sessionId === selectedSessionId && text.includes(terms);
   });
   const active = rows.find(item => identity(item) === selected) ?? rows[0];
   selected = active ? identity(active) : "";
@@ -421,38 +552,63 @@ function stop(message) {
   failureStatus.textContent = "";
   controlKey.value = "";
   captures = [];
+  sessions = [];
+  selectedSessionId = "";
+  viewGeneration++;
+  simulationAvailable = false;
   selected = "";
   disconnect.disabled = true;
   status.textContent = message;
   status.dataset.connected = "false";
+  renderSessions();
   render();
 }
 
 async function refresh(id) {
+  clearTimeout(timer);
+  let version = viewGeneration;
   try {
-    const url = location.pathname.replace(/\\/$/, "") + "/captures";
-    const result = await fetch(url, { headers: { "Vigil-Read-Key": readKey }, cache: "no-store" });
-    if (id !== generation) return;
+    const result = await fetch(apiPath("/sessions"), {
+      headers: { "Vigil-Read-Key": readKey }, cache: "no-store",
+    });
+    if (id !== generation || version !== viewGeneration) return;
     if (result.status === 403) {
       stop("Read key rejected.");
       return;
     }
-    if (!result.ok) throw new Error("Capture request failed");
-    const payload = await result.text();
-    if (id !== generation) return;
-    if (payload !== lastPayload) {
-      captures = JSON.parse(payload).captures;
-      lastPayload = payload;
-      render();
+    if (!result.ok) throw new Error("Session request failed");
+    sessions = (await result.json()).sessions;
+    if (id !== generation || version !== viewGeneration) return;
+    renderSessions();
+    version = viewGeneration;
+    if (selectedSessionId) {
+      const selectedVersion = viewGeneration;
+      const response = await fetch(scopedPath("/captures"), {
+        headers: { "Vigil-Read-Key": readKey }, cache: "no-store",
+      });
+      if (id !== generation || selectedVersion !== viewGeneration) return;
+      if (!response.ok) throw new Error("Capture request failed");
+      const payload = await response.text();
+      if (id !== generation || selectedVersion !== viewGeneration) return;
+      if (payload !== lastPayload) {
+        captures = JSON.parse(payload).captures;
+        lastPayload = payload;
+        render();
+      }
+      await loadFailures(id, selectedVersion);
     }
-    status.textContent = captures.length + (captures.length === 1 ? " request" : " requests");
-    status.dataset.connected = "true";
-    await loadFailures(id);
-  } catch {
     if (id !== generation) return;
-    status.textContent = "Unable to load captures. Retrying.";
+    status.textContent = selectedSessionId
+      ? captures.length + (captures.length === 1 ? " request" : " requests")
+      : sessions.length + (sessions.length === 1 ? " session" : " sessions");
+    status.dataset.connected = "true";
+  } catch {
+    if (id !== generation || version !== viewGeneration) return;
+    status.textContent = "Unable to load sessions. Retrying.";
   }
-  timer = setTimeout(() => refresh(id), 2000);
+  if (id === generation && version === viewGeneration) {
+    timer = setTimeout(() => refresh(id), 2000);
+  }
 }
 
 access.onsubmit = (event) => {
@@ -465,8 +621,9 @@ access.onsubmit = (event) => {
 };
 disconnect.onclick = () => stop("Disconnected.");
 query.oninput = render;
-device.onchange = render;
+device.onchange = () => selectSession(device.value);
 views.onchange = render;
+renderSessions();
 render();
 `;
 
@@ -518,8 +675,18 @@ nav:has(+ details[hidden]) { padding-right: 28px; }
 #status::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
   margin-right: 6px; background: var(--muted); vertical-align: 2px; }
 #status[data-connected="true"]::before { background: var(--accent); }
+#session-context { display: flex; gap: 16px; justify-content: space-between; align-items: center; margin: 4px 28px 18px; }
+#session-description { margin: 5px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+#session-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+#session-actions button { font-size: 12px; }
+#session-list { margin: 0 28px 28px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.session-card { display: grid; gap: 9px; text-align: left; padding: 20px; }
+.session-card strong { font-size: 17px; font-weight: 600; }
+.session-card code { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.session-card > span { font-size: 12px; color: var(--accent); }
+#simulation-scope { overflow-wrap: anywhere; color: var(--accent); padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 main { margin: 0 28px 28px; display: grid; grid-template-columns: minmax(280px, 32%) minmax(0, 1fr);
-  height: calc(100dvh - 185px); min-height: 420px; overflow: hidden;
+  height: calc(100dvh - 260px); min-height: 420px; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
 #calls { overflow-y: auto; border-right: 1px solid var(--line); padding: 8px; }
 #calls button { display: grid; gap: 7px; width: 100%; text-align: left; padding: 14px;
@@ -574,7 +741,7 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
   nav { flex-wrap: wrap; padding-right: 28px; }
   #status { width: 100%; min-height: 25px; }
   #failures { top: 162px; }
-  main { height: calc(100dvh - 225px); grid-template-columns: minmax(230px, 36%) minmax(0, 1fr); }
+  main { height: calc(100dvh - 300px); grid-template-columns: minmax(230px, 36%) minmax(0, 1fr); }
 }
 @media (max-width: 600px) {
   header { padding: 16px; gap: 16px; }
@@ -582,6 +749,8 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
   #key { flex: 1; width: 120px; }
   #access button { font-size: 12px; padding: 8px; }
   nav { padding: 16px; gap: 8px; }
+  #session-context { margin: 0 16px 16px; align-items: start; flex-direction: column; }
+  #session-list { margin: 0 16px 16px; grid-template-columns: minmax(0, 1fr); }
   #query { width: 100%; flex-basis: 100%; }
   #device { max-width: 53%; }
   #status { width: auto; margin-left: auto; min-height: 0; }
@@ -610,12 +779,13 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
 </header>
 <nav aria-label="Capture filters">
   <input id="query" type="search" aria-label="Search captures" placeholder="Search URL, method, status, or trace ID">
-  <select id="device" aria-label="Device"></select>
+  <select id="device" aria-label="Frontend session"></select>
   <span id="status" role="status">Disconnected.</span>
 </nav>
 <details id="failures" hidden>
   <summary>Express failure simulation <span id="rule-count"></span></summary>
   <div class="panel-body">
+  <p id="simulation-scope"></p>
   <p>Enable a rule, then make the matching request from your development app.</p>
   <label>Simulation control key
     <input id="control-key" type="password" autocomplete="off" placeholder="Server control key">
@@ -648,7 +818,15 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
   <button id="clear-failures" type="button">Remove all rules</button>
   </div>
 </details>
-<main>
+<section id="session-context" aria-label="Session overview">
+  <div><h2 id="session-heading">Device sessions</h2><p id="session-description"></p></div>
+  <div id="session-actions" hidden>
+    <button id="copy-session" type="button">Copy session ID</button>
+    <button id="back-sessions" type="button">All sessions</button>
+  </div>
+</section>
+<section id="session-list" aria-label="Device sessions"></section>
+<main id="workspace" hidden>
   <div id="calls" aria-label="Captured requests"></div>
   <section id="request-details" aria-label="Request details">
     <div class="detail-toolbar">

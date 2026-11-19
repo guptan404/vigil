@@ -89,6 +89,7 @@ class _VigilInspectorState extends State<VigilInspector> {
                         builder: (context, constraints) {
                           final isWide = constraints.maxWidth >= 1000;
                           final list = _CallListView(
+                            session: _vigil.session,
                             calls: calls,
                             visibleCalls: visibleCalls,
                             selectedCallId: isWide ? selectedCall?.id : null,
@@ -345,6 +346,7 @@ class _InspectorAppBar extends StatelessWidget implements PreferredSizeWidget {
 
 class _CallListView extends StatelessWidget {
   const _CallListView({
+    required this.session,
     required this.calls,
     required this.visibleCalls,
     required this.selectedCallId,
@@ -358,6 +360,7 @@ class _CallListView extends StatelessWidget {
     required this.onSelected,
   });
 
+  final VigilSession session;
   final List<VigilHttpCall> calls;
   final List<VigilHttpCall> visibleCalls;
   final String? selectedCallId;
@@ -380,6 +383,24 @@ class _CallListView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Row(children: [
+                Expanded(
+                    child: Text(
+                  '${session.deviceName ?? session.deviceType} · '
+                  '${session.id.length > 8 ? session.id.substring(0, 8) : session.id}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                )),
+                IconButton(
+                  tooltip: 'Copy session ID',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 15,
+                  onPressed: () => _copyWithFeedback(
+                      context, session.id, 'Session ID copied'),
+                  icon: const Icon(Icons.copy_rounded),
+                ),
+              ]),
               _SummaryStrip(calls: calls),
               const SizedBox(height: 14),
               Row(

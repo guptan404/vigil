@@ -8,6 +8,7 @@ import 'vigil_event.dart';
 import 'vigil_http_error.dart';
 import 'vigil_http_request.dart';
 import 'vigil_http_response.dart';
+import 'vigil_session.dart';
 
 /// In-memory recorder and event source for Vigil HTTP calls.
 ///
@@ -20,12 +21,16 @@ class Vigil {
   static final Vigil instance = Vigil._();
 
   VigilConfig _config = const VigilConfig();
+  VigilSession _session = VigilSession.create();
   final _calls = <VigilHttpCall>[];
   final _events = StreamController<VigilEvent>.broadcast();
   final _idRandom = Random.secure();
 
   /// Active capture configuration.
   VigilConfig get config => _config;
+
+  /// Current app-run identity, also used for session-scoped backend rules.
+  VigilSession get session => _session;
 
   /// Whether new calls are currently retained.
   bool get enabled => _config.enabled;
@@ -39,6 +44,7 @@ class Vigil {
   /// Applies [config] and clears previously captured calls.
   void init({VigilConfig? config}) {
     _config = config ?? const VigilConfig();
+    _session = _config.session ?? VigilSession.create();
     clear();
   }
 
@@ -46,7 +52,8 @@ class Vigil {
   String startCall(VigilHttpRequest request) {
     final call = VigilHttpCall(
       id: _newId(),
-      request: request,
+      request:
+          request.session == null ? request.withSession(_session) : request,
       startedAt: request.timestamp,
     );
     if (!_config.enabled) return call.id;

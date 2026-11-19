@@ -1,3 +1,4 @@
+import { isVigilSessionId } from "./sessions.js";
 import type { VigilFailureSimulation } from "./simulation.js";
 import type { ErrorRequestHandler, NextFunction, Request, RequestHandler, Response } from "express";
 import {
@@ -66,6 +67,8 @@ export interface VigilRequestContext {
   readonly logs: readonly VigilRequestLog[];
   /** Throws an armed operation error inside the current application call stack. */
   failPoint(name: string): void;
+  /** Frontend app-run identity, when a valid session header was supplied. */
+  sessionId?: string;
   traceparent: string;
   timings: ServerTimingMetric[];
   time<T>(name: string, description: string, fn: () => Promise<T> | T): Promise<T>;
@@ -94,6 +97,8 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
 
     const incomingTrace = req.header("traceparent");
     const traceparent = parseTraceparent(incomingTrace) ? incomingTrace! : generateTraceparent();
+    const incomingSession = req.header("Vigil-Session-Id");
+    const sessionId = isVigilSessionId(incomingSession) ? incomingSession : undefined;
     const timings: ServerTimingMetric[] = [];
     const logs: VigilRequestLog[] = [];
     const debugAllowed = !!config.debugKey && req.header("Vigil-Key") === config.debugKey;
@@ -102,6 +107,7 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
 
     req.vigil = {
       traceparent,
+      sessionId,
       timings,
       logs,
       failPoint(name) { config.simulation?.failPoint(req, name); },
@@ -160,6 +166,7 @@ export function vigilMiddleware(config: VigilExpressConfig = {}) {
             path: req.path,
             statusCode,
             traceparent,
+            sessionId,
             ...(logs.length > 0 ? { logs } : {}),
           },
         }, {
@@ -200,6 +207,7 @@ export function vigilErrorHandler(config: VigilExpressConfig = {}): ErrorRequest
               method: req.method,
               path: req.path,
               traceparent: req.vigil?.traceparent,
+              sessionId: req.vigil?.sessionId,
               ...(req.vigil?.logs.length ? { logs: req.vigil.logs } : {}),
             },
           },

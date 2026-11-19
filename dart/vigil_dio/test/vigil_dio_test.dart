@@ -14,6 +14,8 @@ void main() {
       ..interceptors.add(VigilDioInterceptor(vigil: vigil))
       ..httpClientAdapter = _Adapter((request) async {
         expect(request.headers['traceparent'], isNotNull);
+        expect(request.headers['Vigil-Session-Id'], vigil.session.id);
+        expect(request.headers['Vigil-Device-Type'], vigil.session.deviceType);
         expect(request.headers['Vigil-Key'], 'dev');
         return ResponseBody.fromString(
           '{"ok":true}',
@@ -27,6 +29,7 @@ void main() {
 
     await dio.get('https://example.com/ok');
 
+    expect(vigil.calls.single.request.session?.id, vigil.session.id);
     expect(vigil.calls, hasLength(1));
     expect(vigil.calls.single.response!.statusCode, 200);
     expect(vigil.calls.single.response!.serverTimings.single.name, 'db');

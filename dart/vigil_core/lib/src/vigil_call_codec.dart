@@ -6,6 +6,7 @@ import 'vigil_debug_payload.dart';
 import 'vigil_http_error.dart';
 import 'vigil_http_request.dart';
 import 'vigil_http_response.dart';
+import 'vigil_session.dart';
 
 /// Converts captured calls into the version 1 lifecycle wire format.
 class VigilCallCodec {
@@ -54,6 +55,9 @@ class VigilCallCodec {
         body: _readBody(request),
         timestamp: DateTime.parse(request['timestamp'] as String),
         traceContext: trace,
+        session: request['session'] == null
+            ? null
+            : VigilSession.fromJson(request['session'] as Map<String, dynamic>),
       ),
       response: response == null
           ? null
@@ -109,6 +113,7 @@ class VigilCallCodec {
   }
 
   static Map<String, Object?> _requestToJson(VigilHttpRequest request) => {
+        if (request.session != null) 'session': request.session!.toJson(),
         'method': request.method,
         'url': request.uri.toString(),
         'headers': request.headers,

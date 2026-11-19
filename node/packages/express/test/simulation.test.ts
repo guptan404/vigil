@@ -98,7 +98,7 @@ describe("Express failure simulation", () => {
 
   it("requires a separate control key and validates before replacing rules", async () => {
     const { app, simulation } = setup();
-    const rule = { method: "GET", path: "/orders", effect: "httpError", statusCode: 503 };
+    const rule = { method: "GET", path: "/orders", effect: "httpError", statusCode: 503, sessionId: "phone-a" };
     for (const key of ["", "read", "dev"]) {
       expect((await request(app).post("/inspect/simulation")
         .set("Vigil-Control-Key", key).send(rule)).status).toBe(403);
@@ -118,13 +118,13 @@ describe("Express failure simulation", () => {
       expect(simulation.list()[0].id).toBe(enabled.body.id);
     }
     expect((await request(app).get("/inspect/simulation")).status).toBe(403);
-    const state = await request(app).get("/inspect/simulation").set("Vigil-Read-Key", "read");
+    const state = await request(app).get("/inspect/simulation?sessionId=phone-a").set("Vigil-Read-Key", "read");
     expect(state.body.rules).toHaveLength(1);
     expect(state.body.allowedPaths).toEqual(["/orders"]);
 
-    expect((await request(app).delete("/inspect/simulation/" + enabled.body.id)
+    expect((await request(app).delete("/inspect/simulation/" + enabled.body.id + "?sessionId=phone-a")
       .set("Vigil-Control-Key", "read")).status).toBe(403);
-    expect((await request(app).delete("/inspect/simulation/" + enabled.body.id)
+    expect((await request(app).delete("/inspect/simulation/" + enabled.body.id + "?sessionId=phone-a")
       .set("Vigil-Control-Key", "control")).status).toBe(204);
     expect((await request(app).get("/orders").set("Vigil-Key", "dev")).status).toBe(200);
   });

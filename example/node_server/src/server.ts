@@ -40,7 +40,7 @@ if (process.env.VIGIL_WEB_PREVIEW === "true") {
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "content-type,traceparent,Vigil-Key,Vigil-Ingest-Key");
+  res.setHeader("Access-Control-Allow-Headers", "content-type,traceparent,Vigil-Key,Vigil-Ingest-Key,Vigil-Session-Id,Vigil-Device-Type");
   res.setHeader("Access-Control-Expose-Headers", "Server-Timing,traceparent,Vigil-Debug");
   if (req.method === "OPTIONS") {
     res.sendStatus(204);

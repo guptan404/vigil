@@ -1,3 +1,4 @@
+import { isVigilSessionId } from "./sessions.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Request, RequestHandler } from "express";
 
@@ -8,6 +9,8 @@ export interface VigilFailureRuleInput {
   /** Exact path, without a query string. Must be in allowedPaths. */
   path: string;
   effect: VigilFailureEffect;
+  /** Limit this rule to one frontend session. Omit for an explicit global rule. */
+  sessionId?: string;
   /** Registered point inside application code. Omit for request-entry rules. */
   failurePoint?: string;
   statusCode?: number;
@@ -23,6 +26,7 @@ export interface VigilFailureRule {
   readonly method: string;
   readonly path: string;
   readonly effect: VigilFailureEffect;
+  readonly sessionId?: string;
   readonly failurePoint?: string;
   readonly statusCode: number;
   readonly body: unknown;
@@ -87,7 +91,7 @@ export class VigilFailureSimulation {
     const rule = this.takeRule(req, name);
     if (!rule) return;
     req.vigil?.log("warn", "Vigil code failure simulation", {
-      ruleId: rule.id, failurePoint: name, path: rule.path,
+      ruleId: rule.id, failurePoint: name, path: rule.path, sessionId: rule.sessionId,
     });
     const error = this.points.get(name)!();
     if (!(error instanceof Error)) throw new TypeError("Failure point factory must return an Error.");
@@ -108,7 +112,7 @@ export class VigilFailureSimulation {
     const rule = this.parseRule(input);
     const previous = [...this.rules.values()].find(
       item => item.method === rule.method && item.path === rule.path &&
-        item.failurePoint === rule.failurePoint,
+        item.failurePoint === rule.failurePoint && item.sessionId === rule.sessionId,
     );
     if (!previous && this.rules.size >= 100) throw new Error("At most 100 failure rules are allowed.");
     if (previous) this.rules.delete(previous.id);
@@ -120,8 +124,14 @@ export class VigilFailureSimulation {
     return this.rules.delete(id);
   }
 
-  clear(): void {
-    this.rules.clear();
+  clear(sessionId?: string): void {
+    if (sessionId === undefined) {
+      this.rules.clear();
+      return;
+    }
+    for (const [id, rule] of this.rules) {
+      if (rule.sessionId === sessionId) this.rules.delete(id);
+    }
   }
 
   /** Mount after vigilMiddleware and before the application routes. */
@@ -133,7 +143,7 @@ export class VigilFailureSimulation {
         return;
       }
       req.vigil?.log("warn", "Vigil server failure simulation", {
-        ruleId: rule.id, effect: rule.effect, path: rule.path,
+        ruleId: rule.id, effect: rule.effect, path: rule.path, sessionId: rule.sessionId,
       });
       res.setHeader("Vigil-Simulation", rule.effect);
       const apply = () => {
@@ -174,10 +184,15 @@ export class VigilFailureSimulation {
         !timingSafeEqual(hash(req.header("Vigil-Key") ?? ""), this.debugHash)) {
       return undefined;
     }
-    const rule = [...this.rules.values()].find(
+    const sessionId = req.header("Vigil-Session-Id");
+    const matching = [...this.rules.values()].filter(
       item => item.method === req.method && item.path === req.path &&
         item.failurePoint === failurePoint,
     );
+    // A device rule wins over an explicitly configured global rule.
+    const rule = (isVigilSessionId(sessionId)
+      ? matching.find(item => item.sessionId === sessionId) : undefined) ??
+      matching.find(item => item.sessionId === undefined);
     // Consume before entering application code so concurrent calls respect times.
     if (rule && rule.remaining !== null) {
       if (rule.remaining === 1) this.rules.delete(rule.id);
@@ -202,6 +217,9 @@ export class VigilFailureSimulation {
          input.statusCode !== undefined || input.body !== undefined)) {
       throw new Error("Code failure points use a registered error factory. Choose exception and omit status, body and delay.");
     }
+    if (input.sessionId !== undefined && !isVigilSessionId(input.sessionId)) {
+      throw new Error("Enter a valid frontend session ID.");
+    }
     const statusCode = input.statusCode ?? 500;
     const delayMs = input.delayMs ?? (input.effect === "timeout" ? 30000 : 0);
     if (!Number.isInteger(statusCode) || statusCode < 400 || statusCode > 599) {
@@ -222,6 +240,7 @@ export class VigilFailureSimulation {
       id: randomUUID(), method: input.method, path: input.path, effect: input.effect,
       statusCode, body: JSON.parse(encoded), delayMs, remaining: input.times ?? null,
       ...(input.failurePoint === undefined ? {} : { failurePoint: input.failurePoint }),
+      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     });
   }
 }

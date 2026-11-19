@@ -59,6 +59,8 @@ class VigilDioReplay {
     'content-length',
     'transfer-encoding',
     'connection',
+    'vigil-session-id',
+    'vigil-device-type',
     'traceparent',
     'tracestate',
     'vigil-key',

@@ -29,9 +29,9 @@ class _VigilExampleAppState extends State<VigilExampleApp> {
           endpoint: Uri.parse('$_origin/vigil/ingest'),
           ingestKey: 'dev-vigil',
           flushInterval: const Duration(seconds: 1),
+          includePendingCalls: true,
           clientInfo: {
             'app': 'vigil_example',
-            'sessionId': VigilTraceContext.generate().traceId.substring(0, 8),
           },
         ),
       );

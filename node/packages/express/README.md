@@ -118,7 +118,9 @@ client call summaries; it does not cause this middleware to collect server logs.
 Mount `vigilInspectorRouter({ sink, readKey })` at a development route such as
 `/vigil/inspector`. Use the same memory sink as ingest and a separate read key.
 Open the route in a desktop browser and enter the read key to inspect recent
-uploads. Device filters use the app's ingest client metadata.
+uploads. The initial view lists frontend sessions by ID, device type, app, and request
+counts. Select one to monitor its requests. The Flutter SDK automatically shares
+the same ID in capture batches and in the `Vigil-Session-Id` request header.
 
 ## Code-level failure points
 
@@ -200,7 +202,8 @@ app.use(simulation.middleware());
 // Mount your routes here, then vigilErrorHandler and your app's error handler.
 ```
 
-Connect to the desktop inspector with its read key, expand **Express failure
+Connect to the desktop inspector with its read key, select a frontend session,
+and expand **Express failure
 simulation**, and enter the separate simulation control key. Choose a method,
 exact path, and failure location, then enable the rule. Choose **Before route**
 to configure the HTTP and transport effects below. Rules apply to requests carrying
@@ -237,11 +240,36 @@ simulation.put({
 });
 ```
 
-The desktop controls use `GET /simulation` with `Vigil-Read-Key` to inspect
-rules, `POST /simulation` with `Vigil-Control-Key` to create or replace a rule,
-and `DELETE /simulation/:id` or `DELETE /simulation` to remove rules. These
+The desktop controls use `GET /sessions` to list devices and
+`GET /captures?sessionId=...` to monitor the selected session. Reading captures
+without a session ID returns an empty list.
+Use `GET /simulation?sessionId=...` with `Vigil-Read-Key` to inspect rules,
+`POST /simulation` with `Vigil-Control-Key` and a `sessionId` in the rule body
+to create or replace a rule, and `DELETE /simulation/:id?sessionId=...` or
+`DELETE /simulation?sessionId=...` to remove rules for that session. These
 paths are relative to the inspector mount. Keep the control key on the server
 and in your development browser.
+
+## Session-scoped rules
+
+Add `sessionId` to a rule to target a frontend session:
+
+```ts
+simulation.put({
+  sessionId: "frontend-session-id",
+  method: "GET",
+  path: "/orders",
+  effect: "httpError",
+  statusCode: 503,
+  times: 1,
+});
+```
+
+The middleware matches this against the request's `Vigil-Session-Id` header.
+Other devices do not consume its request count. Rules for the same method/path
+on different sessions are independent. Named code failure points use the same
+matching behavior. `req.vigil.sessionId` exposes the validated ID to app code.
+Allow `Vigil-Session-Id` and `Vigil-Device-Type` in cross-origin request headers.
 
 ## Browser clients
 
