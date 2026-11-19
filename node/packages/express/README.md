@@ -242,7 +242,10 @@ simulation.put({
 
 The desktop controls use `GET /sessions` to list devices and
 `GET /captures?sessionId=...` to monitor the selected session. Reading captures
-without a session ID returns an empty list.
+without a session ID returns an empty list. After connecting with the read key,
+paste a frontend ID into **Session ID** and choose **Connect to session** to
+monitor it directly. The desktop keeps waiting for that ID when no captures
+exist yet, then shows requests automatically when they arrive.
 Use `GET /simulation?sessionId=...` with `Vigil-Read-Key` to inspect rules,
 `POST /simulation` with `Vigil-Control-Key` and a `sessionId` in the rule body
 to create or replace a rule, and `DELETE /simulation/:id?sessionId=...` or

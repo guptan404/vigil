@@ -296,6 +296,10 @@ yourId)` in `VigilConfig.session`. The uploader owns session fields in
 The desktop inspector opens with a device session list. Each card shows its
 device, ID, app, last activity, and request/failure counts. Select a session to
 monitor its captured requests and configure failures for that session.
+You can also paste an ID copied from Flutter Vigil into **Session ID** and
+choose **Connect to session** after connecting with your inspector read key.
+The desktop waits for that session's first upload and displays new requests
+automatically; the session ID does not replace the read key.
 Rules created in the desktop inspector apply only to requests carrying that
 session's ID. Another device calling the same endpoint is unaffected.
 

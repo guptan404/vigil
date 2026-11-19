@@ -170,6 +170,8 @@ const sessionActions = byId("session-actions");
 const simulationScope = byId("simulation-scope");
 const backSessions = byId("back-sessions");
 const copySession = byId("copy-session");
+const sessionInput = byId("session-id");
+const connectSession = byId("connect-session");
 let simulationAvailable = false;
 
 function sessionLabel(session) {
@@ -181,18 +183,14 @@ function sessionLabel(session) {
 
 function renderSessions() {
   const active = sessions.find(session => session.sessionId === selectedSessionId);
-  if (selectedSessionId && !active) {
-    selectedSessionId = "";
-    captures = [];
-    viewGeneration++;
-    lastPayload = "";
-    simulationPayload = "";
-    failurePanel.open = false;
-  }
   device.replaceChildren(new Option("Select a session", ""),
     ...sessions.map(session => new Option(
       sessionLabel(session) + " · " + session.sessionId.slice(0, 8), session.sessionId)));
+  if (selectedSessionId && !active) {
+    device.append(new Option("Waiting · " + selectedSessionId.slice(0, 8), selectedSessionId));
+  }
   device.value = selectedSessionId;
+  connectSession.disabled = !readKey;
   query.disabled = !selectedSessionId;
   workspace.hidden = !selectedSessionId;
   sessionCards.hidden = !!selectedSessionId;
@@ -204,6 +202,12 @@ function renderSessions() {
       active.app, active.deviceType, "Session " + active.sessionId,
     ].filter(Boolean).join(" · ");
     simulationScope.textContent = "Applies to " + sessionLabel(active) + " · " + active.sessionId;
+    return;
+  }
+  if (selectedSessionId) {
+    sessionHeading.textContent = "Waiting for device session";
+    sessionDescription.textContent = "Session " + selectedSessionId;
+    simulationScope.textContent = "Applies to session " + selectedSessionId;
     return;
   }
   sessionHeading.textContent = "Device sessions";
@@ -242,6 +246,7 @@ function renderSessions() {
 function selectSession(id) {
   viewGeneration++;
   selectedSessionId = id;
+  sessionInput.value = id;
   selected = "";
   captures = [];
   lastPayload = "";
@@ -255,6 +260,20 @@ function selectSession(id) {
   render();
   if (readKey) refresh(generation);
 }
+
+sessionInput.oninput = () => sessionInput.setCustomValidity("");
+byId("session-connect").onsubmit = event => {
+  event.preventDefault();
+  if (!readKey) return;
+  const id = sessionInput.value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) {
+    sessionInput.setCustomValidity("Enter a valid session ID copied from Flutter Vigil.");
+    sessionInput.reportValidity();
+    return;
+  }
+  sessionInput.setCustomValidity("");
+  selectSession(id);
+};
 
 backSessions.onclick = () => selectSession("");
 copySession.onclick = async () => {
@@ -491,7 +510,8 @@ function render() {
     const title = document.createElement("strong");
     title.textContent = captures.length ? "No matching requests" : "Waiting for requests";
     const hint = document.createElement("p");
-    hint.textContent = captures.length ? "Try a different search or device." : "Make a request in the app to see it here.";
+    hint.textContent = captures.length ? "Try a different search or device."
+      : "Make a request from this device using the same backend. New requests appear automatically.";
     empty.append(title, hint);
     list.append(empty);
   }
@@ -599,7 +619,8 @@ async function refresh(id) {
     }
     if (id !== generation) return;
     status.textContent = selectedSessionId
-      ? captures.length + (captures.length === 1 ? " request" : " requests")
+      ? captures.length ? captures.length + (captures.length === 1 ? " request" : " requests")
+        : "Waiting for this session’s requests"
       : sessions.length + (sessions.length === 1 ? " session" : " sessions");
     status.dataset.connected = "true";
   } catch {
@@ -679,6 +700,12 @@ nav:has(+ details[hidden]) { padding-right: 28px; }
 #session-description { margin: 5px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 #session-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
 #session-actions button { font-size: 12px; }
+#session-connect { display: flex; flex-wrap: wrap; align-items: end; gap: 10px;
+  margin: 0 28px 18px; padding: 16px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; }
+#session-connect label { display: grid; gap: 6px; flex: 1; min-width: min(240px, 100%); font-size: 12px; }
+#session-id { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }
+#session-help { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; }
 #session-list { margin: 0 28px 28px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .session-card { display: grid; gap: 9px; text-align: left; padding: 20px; }
 .session-card strong { font-size: 17px; font-weight: 600; }
@@ -686,7 +713,7 @@ nav:has(+ details[hidden]) { padding-right: 28px; }
 .session-card > span { font-size: 12px; color: var(--accent); }
 #simulation-scope { overflow-wrap: anywhere; color: var(--accent); padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 main { margin: 0 28px 28px; display: grid; grid-template-columns: minmax(280px, 32%) minmax(0, 1fr);
-  height: calc(100dvh - 260px); min-height: 420px; overflow: hidden;
+  height: calc(100dvh - 375px); min-height: 420px; overflow: hidden;
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
 #calls { overflow-y: auto; border-right: 1px solid var(--line); padding: 8px; }
 #calls button { display: grid; gap: 7px; width: 100%; text-align: left; padding: 14px;
@@ -751,6 +778,7 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
   nav { padding: 16px; gap: 8px; }
   #session-context { margin: 0 16px 16px; align-items: start; flex-direction: column; }
   #session-list { margin: 0 16px 16px; grid-template-columns: minmax(0, 1fr); }
+  #session-connect { margin: 0 16px 16px; }
   #query { width: 100%; flex-basis: 100%; }
   #device { max-width: 53%; }
   #status { width: auto; margin-left: auto; min-height: 0; }
@@ -825,6 +853,15 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
     <button id="back-sessions" type="button">All sessions</button>
   </div>
 </section>
+<form id="session-connect" aria-label="Connect to a device session">
+  <label>Session ID
+    <input id="session-id" placeholder="Paste session ID from Flutter Vigil" autocomplete="off" spellcheck="false"
+      aria-describedby="session-help" required maxlength="128">
+  </label>
+  <button id="connect-session" type="submit" class="primary" disabled>Connect to session</button>
+  <p id="session-help">Connect with your inspector read key above, then paste the session ID copied from Flutter Vigil.
+    You can connect before the device’s first upload, or choose a discovered session below.</p>
+</form>
 <section id="session-list" aria-label="Device sessions"></section>
 <main id="workspace" hidden>
   <div id="calls" aria-label="Captured requests"></div>
