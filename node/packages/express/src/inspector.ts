@@ -144,10 +144,11 @@ function brandedPage(branding?: VigilInspectorConfig["branding"]): string {
   const name = branding?.name ?? "Vigil";
   const escape = (text: string) => text.replace(/[&<>"']/g,
     char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
-  const logo = branding?.logoSvg ?? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><g fill="none" stroke="#080808" stroke-width="2.5"><path d="M8 8h16v16H8zM8 16h16M16 8v16"/><circle cx="8" cy="8" r="4" fill="white"/><circle cx="24" cy="24" r="4" fill="white"/></g></svg>';
+  // Material Icons network_check rounded, also used by Flutter (Google, Apache-2.0).
+  const logo = branding?.logoSvg ?? '<svg fill="#137955" xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M15.9 5c-.17 0-.32.09-.41.23l-.07.15-5.18 11.65c-.16.29-.26.61-.26.96 0 1.11.9 2.01 2.01 2.01.96 0 1.77-.68 1.96-1.59l.01-.03L16.4 5.5c0-.28-.22-.5-.5-.5zM2.06 10.06c.51.51 1.33.55 1.89.09 2.76-2.26 6.24-3.18 9.58-2.76l1.19-2.68c-4.35-.78-8.96.3-12.57 3.25-.64.53-.68 1.51-.09 2.1zm19.88 0c.59-.59.55-1.57-.1-2.1-1.36-1.11-2.86-1.95-4.44-2.53l-.53 2.82c1.13.47 2.19 1.09 3.17 1.89.58.46 1.39.43 1.9-.08zm-4.03 4.03c.6-.6.56-1.63-.14-2.12-.46-.33-.94-.61-1.44-.86l-.55 2.92c.11.07.22.14.32.22.57.4 1.33.32 1.81-.16zm-11.83-.01c.5.5 1.27.54 1.85.13.94-.66 2.01-1.06 3.1-1.22l1.28-2.88c-2.13-.06-4.28.54-6.09 1.84-.69.51-.74 1.53-.14 2.13z"/></svg>';
   return page.replace("<!--APP_BRAND-->",
     '<img class="brand-mark" src="data:image/svg+xml;base64,' + Buffer.from(logo).toString("base64") +
-    '" alt="' + escape(name) + ' logo"><div><h1>' + escape(name) + '</h1><p>Vigil network inspector</p></div>');
+    '" alt="' + escape(name) + ' logo"><div><h1>' + escape(name) + '</h1><p>Network inspector</p></div>');
 }
 
 const script = `
@@ -730,9 +731,9 @@ const page = `<!doctype html>
 :root {
   color-scheme: light;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --bg: #f9f9f9; --panel: #fff; --raised: #f6f6f6; --ink: #080808;
-  --muted: #6a6a6a; --line: #e6e6e6; --accent: #080808; --tint: #efefef;
-  --error: #bc4242; --success: #0e7630; --focus: #0066ff;
+  --bg: #f5f8f6; --panel: #fff; --raised: #f1f4f2; --ink: #172a23;
+  --muted: #61746b; --line: #dce5df; --accent: #137955; --tint: #e4f4eb;
+  --error: #bc4242; --success: #0e7630; --focus: #137955;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -748,11 +749,12 @@ button { cursor: pointer; font-weight: 600; }
 button:hover:not(:disabled) { background: var(--raised); }
 button:disabled { opacity: .4; cursor: default; }
 button.primary { background: var(--accent); color: #f9f9f9; border-color: var(--accent); }
-button.primary:hover:not(:disabled) { background: #333; }
+button.primary:hover:not(:disabled) { background: #0d6345; }
 header { display: flex; flex: none; flex-wrap: wrap; gap: 14px; align-items: center;
   padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { margin-right: auto; display: flex; gap: 12px; align-items: center; }
-.brand-mark { width: 38px; height: 38px; padding: 5px; object-fit: contain; }
+.brand-mark { width: 36px; height: 36px; padding: 7px; object-fit: contain;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--tint); }
 h1 { margin: 0; font-size: 19px; letter-spacing: -.5px; line-height: 1.25; }
 .brand p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
 #access { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -791,7 +793,7 @@ main { flex: 1; min-height: 0; margin: 0 24px 20px; display: grid;
   border-right: 1px solid var(--line); padding: 8px; }
 #calls button { display: grid; gap: 7px; width: 100%; text-align: left; padding: 13px;
   border: 1px solid transparent; border-radius: 10px; margin-bottom: 5px; font-weight: 400; }
-#calls button[aria-pressed="true"] { background: var(--raised); border-color: #c0c0c0; }
+#calls button[aria-pressed="true"] { background: var(--raised); border-color: #bad3c4; }
 .request-line { display: flex; align-items: center; gap: 8px; }
 .method { font: 700 11px ui-monospace, monospace; letter-spacing: .3px; }
 .status-code { margin-left: auto; border-radius: 5px; padding: 2px 7px; background: var(--raised); font-size: 11px; }
@@ -809,7 +811,7 @@ h2 { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 #fail-request { color: var(--error); }
 #view-tabs { flex: none; display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); padding: 0 10px; gap: 2px; }
 #view-tabs button { background: transparent; border: 0; border-radius: 0; padding: 11px 10px; color: var(--muted); font-size: 12px; }
-#view-tabs button[aria-selected="true"] { color: var(--ink); box-shadow: inset 0 -2px var(--ink); }
+#view-tabs button[aria-selected="true"] { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
 #views { display: none; }
 #detail { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 pre { padding: 18px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
