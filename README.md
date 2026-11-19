@@ -165,9 +165,10 @@ timeout or connection failure, or delay and forward the original request.
 
 The desktop inspector can enable named failure points inside Express
 application code. In the example, open `/vigil/inspector`, connect with
-`dev-vigil-read`, select the frontend device session, expand **Express failure simulation**, and enter
+`dev-vigil-read`, select the frontend device session, expand **Response controls**, and enter
 `dev-vigil-control`. Choose `GET /ok`, failure location **users.lookup**,
-and request count 1, then click **Enable rule**.
+and request count 1, then click **Enable rule**. A selected request also has **Mock response**
+and **Fail request** shortcuts that fill its method and path automatically.
 
 The next Flutter `/ok` request reaches the route and throws
 `UserStoreUnavailableError` inside its user lookup operation. The route's
@@ -341,6 +342,9 @@ with the local demo read key `dev-vigil-read`.
   diagnostics in production by default.
 - `Vigil-Debug` carries errors or explicit request logs when `Vigil-Key` matches
   the backend `debugKey`.
+- Response controls use a separate server-only control key. By default rules
+  also require the request's debug key; `requireDebugKey: false` restricts all
+  rules to an explicit device session and allows session-based test builds.
 - The ingest endpoint accepts `POST` requests; it is not a WebSocket endpoint.
 
 ## Workspace development

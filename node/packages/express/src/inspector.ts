@@ -14,6 +14,8 @@ export interface VigilInspectorConfig {
   enabled?: boolean;
   /** Optional server failure controller. */
   simulation?: VigilFailureSimulation;
+  /** App identity shown in the inspector header. SVG is embedded as an image. */
+  branding?: { name: string; logoSvg?: string };
 }
 
 /** Mounts a desktop inspector and its same-origin capture API. */
@@ -36,8 +38,8 @@ export function vigilInspectorRouter(config: VigilInspectorConfig): Router {
   });
   router.get("/", (_req, res) => {
     res.set("Content-Security-Policy",
-      `default-src 'none'; script-src 'sha256-${scriptHash}'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`);
-    res.type("html").send(page);
+      `default-src 'none'; script-src 'sha256-${scriptHash}'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`);
+    res.type("html").send(brandedPage(config.branding));
   });
   const authorizeRead: RequestHandler = (req, res, next) => {
     const supplied = createHash("sha256").update(req.header("Vigil-Read-Key") ?? "").digest();
@@ -52,7 +54,9 @@ export function vigilInspectorRouter(config: VigilInspectorConfig): Router {
     const sessionId = reqSessionId(_req.query.sessionId);
     res.json({
       enabled: simulation?.enabled ?? false,
-      allowedPaths: simulation?.allowedPaths ?? [],
+      requestDebugKeyRequired: simulation?.requiresDebugKey ?? true,
+      allowedPaths: [...new Set([...(simulation?.allowedPaths ?? []),
+        ...(simulation?.allowCapturedPaths ? capturedPaths(config.sink, sessionId) : [])])],
       failurePoints: simulation?.failurePoints ?? [],
       rules: sessionId ? simulation?.list().filter(rule => rule.sessionId === sessionId) ?? [] : [],
     });
@@ -74,7 +78,8 @@ export function vigilInspectorRouter(config: VigilInspectorConfig): Router {
         res.status(400).json({ error: "Select a frontend session before enabling a rule." });
         return;
       }
-      res.status(201).json(config.simulation!.put(req.body));
+      res.status(201).json(config.simulation!.put(req.body,
+        capturedPaths(config.sink, req.body.sessionId, req.body.method)));
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid rule" });
     }
@@ -122,6 +127,29 @@ function reqSessionId(value: unknown): string | undefined {
   return isVigilSessionId(value) ? value : undefined;
 }
 
+function capturedPaths(sink: VigilMemorySink, sessionId?: string, method?: string): string[] {
+  if (!sessionId) return [];
+  return [...new Set(desktopCaptures(sink).flatMap(({ client, call }) => {
+    if (client?.sessionId !== sessionId) return [];
+    const request = call.request as { url?: string; method?: string } | undefined;
+    if (method && request?.method !== method) return [];
+    try {
+      const url = new URL(request?.url ?? "");
+      return [url.pathname];
+    } catch { return []; }
+  }))].filter(path => path.startsWith("/") && path !== "/vigil" && !path.startsWith("/vigil/"));
+}
+
+function brandedPage(branding?: VigilInspectorConfig["branding"]): string {
+  const name = branding?.name ?? "Vigil";
+  const escape = (text: string) => text.replace(/[&<>"']/g,
+    char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+  const logo = branding?.logoSvg ?? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><g fill="none" stroke="#080808" stroke-width="2.5"><path d="M8 8h16v16H8zM8 16h16M16 8v16"/><circle cx="8" cy="8" r="4" fill="white"/><circle cx="24" cy="24" r="4" fill="white"/></g></svg>';
+  return page.replace("<!--APP_BRAND-->",
+    '<img class="brand-mark" src="data:image/svg+xml;base64,' + Buffer.from(logo).toString("base64") +
+    '" alt="' + escape(name) + ' logo"><div><h1>' + escape(name) + '</h1><p>Vigil network inspector</p></div>');
+}
+
 const script = `
 const byId = (id) => document.getElementById(id);
 const access = byId("access");
@@ -161,6 +189,8 @@ copyDetail.onclick = async () => {
 let captures = [];
 let sessions = [];
 let selectedSessionId = "";
+let selectedCapture;
+let detailIdentity = "";
 let viewGeneration = 0;
 const sessionCards = byId("session-list");
 const sessionHeading = byId("session-heading");
@@ -190,12 +220,13 @@ function renderSessions() {
     device.append(new Option("Waiting · " + selectedSessionId.slice(0, 8), selectedSessionId));
   }
   device.value = selectedSessionId;
+  document.body.classList.toggle("session-selected", !!selectedSessionId);
   connectSession.disabled = !readKey;
   query.disabled = !selectedSessionId;
   workspace.hidden = !selectedSessionId;
   sessionCards.hidden = !!selectedSessionId;
   sessionActions.hidden = !selectedSessionId;
-  failurePanel.hidden = !selectedSessionId || !simulationAvailable;
+  failurePanel.hidden = !selectedSessionId;
   if (active) {
     sessionHeading.textContent = sessionLabel(active);
     sessionDescription.textContent = [
@@ -308,18 +339,21 @@ function apiPath(suffix) {
 
 function failureDescription(rule) {
   const effects = {
-    httpError: "HTTP error", exception: "Backend exception", delay: "Delay and forward",
+    mock: "Mock response", httpError: "HTTP error", exception: "Backend exception", delay: "Delay and forward",
     timeout: "Timeout", disconnect: "Disconnect",
   };
   return rule.method + " " + rule.path + (rule.failurePoint ? " · " + rule.failurePoint : "") + " · " + effects[rule.effect] +
-    (!rule.failurePoint && ["httpError", "exception"].includes(rule.effect) ? " " + rule.statusCode : "") +
+    (!rule.failurePoint && ["mock", "httpError", "exception"].includes(rule.effect) ? " " + rule.statusCode : "") +
     (rule.delayMs ? " · " + rule.delayMs + " ms" : "") +
     " · " + (rule.remaining === null ? "until removed" : rule.remaining + " request(s)");
 }
 
 function renderFailures(state) {
   simulationAvailable = state.enabled;
-  failurePanel.hidden = !selectedSessionId || !state.enabled;
+  failurePanel.hidden = !selectedSessionId;
+  byId("simulation-controls").hidden = !state.enabled;
+  byId("simulation-unavailable").hidden = state.enabled;
+  byId("request-key-help").hidden = !state.requestDebugKeyRequired;
   byId("rule-count").textContent = state.rules.length ? String(state.rules.length) : "";
   byId("clear-failures").disabled = state.rules.length === 0;
   const path = byId("failure-path");
@@ -332,9 +366,6 @@ function renderFailures(state) {
   point.replaceChildren(new Option("Before route", ""),
     ...points.map(name => new Option(name, name)));
   if (points.includes(selectedPoint)) point.value = selectedPoint;
-  else if (!failurePointsInitialized && points.length) {
-    point.value = points[0];
-  }
   failurePointsInitialized = true;
   updateFailureFields();
   failureRules.replaceChildren(...state.rules.map(rule => {
@@ -417,8 +448,8 @@ failureForm.onsubmit = event => {
       rule.failurePoint = point;
       rule.delayMs = 0;
     }
-    if (!point && ["httpError", "exception"].includes(effect)) rule.statusCode = Number(byId("failure-code").value);
-    if (effect === "httpError") rule.body = JSON.parse(byId("failure-body").value);
+    if (!point && ["mock", "httpError", "exception"].includes(effect)) rule.statusCode = Number(byId("failure-code").value);
+    if (["mock", "httpError"].includes(effect)) rule.body = JSON.parse(byId("failure-body").value);
     if (byId("failure-times").value) rule.times = Number(byId("failure-times").value);
     changeFailure("POST", "/simulation", rule);
   } catch {
@@ -434,9 +465,10 @@ function updateFailureFields() {
   }
   if (point) selector.value = "exception";
   const effect = selector.value;
-  byId("response-settings").hidden = effect !== "httpError";
-  byId("status-settings").hidden = !!point || !["httpError", "exception"].includes(effect);
-  byId("failure-code").disabled = !!point || !["httpError", "exception"].includes(effect);
+  byId("response-settings").hidden = !["mock", "httpError"].includes(effect);
+  byId("status-settings").hidden = !!point || !["mock", "httpError", "exception"].includes(effect);
+  byId("failure-code").disabled = !!point || !["mock", "httpError", "exception"].includes(effect);
+  byId("failure-code").min = effect === "mock" ? "200" : "400";
   byId("delay-settings").hidden = !!point;
   byId("failure-delay").disabled = !!point;
   byId("point-help").hidden = !point;
@@ -445,9 +477,39 @@ function updateFailureFields() {
 byId("failure-point").onchange = updateFailureFields;
 byId("failure-effect").onchange = () => {
   const effect = byId("failure-effect").value;
+  byId("failure-code").value = effect === "mock" ? "200" : "500";
   byId("failure-delay").value = effect === "timeout" ? "30000" : effect === "delay" ? "1000" : "0";
   updateFailureFields();
 };
+function configureSelectedRequest(effect) {
+  failurePanel.open = true;
+  if (!simulationAvailable || !selectedCapture) return;
+  const request = selectedCapture.call.request;
+  let path;
+  try { path = new URL(request?.url).pathname; }
+  catch { failureStatus.textContent = "This capture has no valid request URL."; return; }
+  const allowed = [...byId("failure-path").options].some(option => option.value === path);
+  if (!allowed) {
+    failureStatus.textContent = "This endpoint is not enabled for response controls on this server.";
+    return;
+  }
+  byId("failure-method").value = request.method;
+  byId("failure-path").value = path;
+  byId("failure-point").value = "";
+  byId("failure-effect").value = effect;
+  byId("failure-code").value = effect === "mock" ? "200" : "500";
+  byId("failure-delay").value = "0";
+  byId("failure-times").value = "1";
+  const summary = selectedCapture.call.response?.body;
+  try {
+    byId("failure-body").value = JSON.stringify(
+      summary?.kind === "json" && summary.text ? JSON.parse(summary.text) : {}, null, 2);
+  } catch { byId("failure-body").value = "{}"; }
+  failureStatus.textContent = "Choose the response or failure, then enable it for this session’s next request.";
+  updateFailureFields();
+}
+byId("mock-request").onclick = () => configureSelectedRequest("mock");
+byId("fail-request").onclick = () => configureSelectedRequest("exception");
 byId("clear-failures").onclick = () => changeFailure("DELETE", "/simulation");
 failurePanel.onkeydown = event => {
   if (event.key === "Escape") {
@@ -475,6 +537,7 @@ function render() {
     return item.client?.sessionId === selectedSessionId && text.includes(terms);
   });
   const active = rows.find(item => identity(item) === selected) ?? rows[0];
+  selectedCapture = active;
   selected = active ? identity(active) : "";
   list.replaceChildren(...rows.map(item => {
     const call = item.call;
@@ -522,6 +585,8 @@ function render() {
   }
   detail.setAttribute("aria-labelledby", "view-" + views.value);
   copyDetail.disabled = !active;
+  byId("mock-request").disabled = !active;
+  byId("fail-request").disabled = !active;
   detailMeta.textContent = active ? [
     active.call.request?.method,
     active.call.response?.statusCode ?? active.call.state,
@@ -557,7 +622,13 @@ function render() {
     raw: active,
   };
   const section = sections[views.value];
+  const nextIdentity = identity(active) + ":" + views.value;
+  const scrollTop = nextIdentity === detailIdentity ? detail.scrollTop : 0;
+  const scrollLeft = nextIdentity === detailIdentity ? detail.scrollLeft : 0;
   detail.textContent = section == null ? "No data captured." : JSON.stringify(section, null, 2);
+  detail.scrollTop = scrollTop;
+  detail.scrollLeft = scrollLeft;
+  detailIdentity = nextIdentity;
 }
 
 function stop(message) {
@@ -657,148 +728,156 @@ const page = `<!doctype html>
 <title>Vigil Network Inspector</title>
 <style>
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --bg: #f5f8f6; --panel: #fff; --raised: #eef3f0; --ink: #172a23;
-  --muted: #61746b; --line: #dce5df; --accent: #137955; --tint: #e4f4eb; --error: #b33d43;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0e1512; --panel: #151e19; --raised: #1c2821; --ink: #e4eee8;
-    --muted: #a0b4a7; --line: #2b3b31; --accent: #86d9ac; --tint: #203d2b; --error: #ffa5a9; }
+  --bg: #f9f9f9; --panel: #fff; --raised: #f6f6f6; --ink: #080808;
+  --muted: #6a6a6a; --line: #e6e6e6; --accent: #080808; --tint: #efefef;
+  --error: #bc4242; --success: #0e7630; --focus: #0066ff;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5; }
+html, body { margin: 0; height: 100%; }
+body { height: 100dvh; overflow: hidden; display: flex; flex-direction: column;
+  background: var(--bg); color: var(--ink); font-size: 13px; line-height: 1.5; }
 button, input, select, textarea { font: inherit; color: inherit; border: 1px solid var(--line);
-  border-radius: 9px; padding: 9px 12px; background: var(--panel); min-height: 40px; }
+  border-radius: 10px; padding: 9px 12px; background: var(--panel); min-height: 38px; }
 input, select, textarea { min-width: 0; max-width: 100%; }
-input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 3px; }
-button { cursor: pointer; font-weight: 600; transition: background .15s; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible,
+summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+button { cursor: pointer; font-weight: 600; }
 button:hover:not(:disabled) { background: var(--raised); }
-button:disabled { opacity: .45; cursor: default; }
-button.primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
-button.primary:hover:not(:disabled) { filter: brightness(.92); background: var(--accent); }
-header { display: flex; flex-wrap: wrap; gap: 20px; align-items: center;
-  padding: 18px 28px; background: var(--panel); border-bottom: 1px solid var(--line); }
+button:disabled { opacity: .4; cursor: default; }
+button.primary { background: var(--accent); color: #f9f9f9; border-color: var(--accent); }
+button.primary:hover:not(:disabled) { background: #333; }
+header { display: flex; flex: none; flex-wrap: wrap; gap: 14px; align-items: center;
+  padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { margin-right: auto; display: flex; gap: 12px; align-items: center; }
-.brand-mark { width: 38px; height: 38px; display: grid; place-items: center; background: var(--tint);
-  border: 1px solid var(--line); color: var(--accent); border-radius: 11px; font-size: 23px; font-weight: 700; }
-h1 { margin: 0; font-size: 20px; letter-spacing: -.5px; line-height: 1.25; }
-.brand p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.brand-mark { width: 38px; height: 38px; padding: 5px; object-fit: contain; }
+h1 { margin: 0; font-size: 19px; letter-spacing: -.5px; line-height: 1.25; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
 #access { display: flex; flex-wrap: wrap; gap: 8px; }
-#key { width: 210px; }
-nav { display: flex; gap: 12px; align-items: center; padding: 18px 28px; padding-right: 275px; }
-nav:has(+ details[hidden]) { padding-right: 28px; }
-#query { flex: 1; min-width: 150px; padding-left: 14px; }
-#device { max-width: 230px; }
-#status { color: var(--muted); font-size: 12px; white-space: nowrap; }
+#key { width: 190px; background: var(--raised); }
+nav { flex: none; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 24px; }
+#query { flex: 1; min-width: 180px; }
+#device { max-width: 240px; }
+#status { color: var(--muted); font-size: 11px; white-space: nowrap; }
 #status::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-  margin-right: 6px; background: var(--muted); vertical-align: 2px; }
-#status[data-connected="true"]::before { background: var(--accent); }
-#session-context { display: flex; gap: 16px; justify-content: space-between; align-items: center; margin: 4px 28px 18px; }
-#session-description { margin: 5px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  margin-right: 6px; background: #aaa; vertical-align: 1px; }
+#status[data-connected="true"]::before { background: var(--success); }
+#session-context { flex: none; display: flex; gap: 12px; justify-content: space-between;
+  align-items: center; margin: 0 24px 12px; }
+#session-description { margin: 3px 0 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 #session-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
-#session-actions button { font-size: 12px; }
-#session-connect { display: flex; flex-wrap: wrap; align-items: end; gap: 10px;
-  margin: 0 28px 18px; padding: 16px; background: var(--panel);
+#session-actions button { font-size: 11px; min-height: 34px; }
+#session-connect { flex: none; display: flex; flex-wrap: wrap; align-items: end; gap: 8px;
+  margin: 0 24px 14px; padding: 12px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 12px; }
-#session-connect label { display: grid; gap: 6px; flex: 1; min-width: min(240px, 100%); font-size: 12px; }
-#session-id { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }
-#session-help { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; }
-#session-list { margin: 0 28px 28px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-.session-card { display: grid; gap: 9px; text-align: left; padding: 20px; }
-.session-card strong { font-size: 17px; font-weight: 600; }
+#session-connect label { display: grid; gap: 4px; flex: 1; min-width: min(200px, 100%); font-size: 11px; }
+#session-id { width: 100%; background: var(--raised); font-family: ui-monospace, monospace; font-size: 12px; }
+#session-help { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 11px; }
+.session-selected #session-help { display: none; }
+.session-selected #session-connect { padding: 8px 12px; }
+#session-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain;
+  margin: 0 24px 20px; display: grid; align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.session-card { display: grid; gap: 8px; text-align: left; padding: 18px; }
+.session-card strong { font-size: 16px; font-weight: 600; }
 .session-card code { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
-.session-card > span { font-size: 12px; color: var(--accent); }
-#simulation-scope { overflow-wrap: anywhere; color: var(--accent); padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-main { margin: 0 28px 28px; display: grid; grid-template-columns: minmax(280px, 32%) minmax(0, 1fr);
-  height: calc(100dvh - 375px); min-height: 420px; overflow: hidden;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
-#calls { overflow-y: auto; border-right: 1px solid var(--line); padding: 8px; }
-#calls button { display: grid; gap: 7px; width: 100%; text-align: left; padding: 14px;
-  border: 1px solid transparent; border-radius: 9px; margin-bottom: 4px; font-weight: 400; }
-#calls button[aria-pressed="true"] { background: var(--tint); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.session-card > span { font-size: 12px; }
+main { flex: 1; min-height: 0; margin: 0 24px 20px; display: grid;
+  grid-template-columns: minmax(250px, 30%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+#calls { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  border-right: 1px solid var(--line); padding: 8px; }
+#calls button { display: grid; gap: 7px; width: 100%; text-align: left; padding: 13px;
+  border: 1px solid transparent; border-radius: 10px; margin-bottom: 5px; font-weight: 400; }
+#calls button[aria-pressed="true"] { background: var(--raised); border-color: #c0c0c0; }
 .request-line { display: flex; align-items: center; gap: 8px; }
-.method { font: 700 11px ui-monospace, monospace; color: var(--accent); letter-spacing: .4px; }
+.method { font: 700 11px ui-monospace, monospace; letter-spacing: .3px; }
 .status-code { margin-left: auto; border-radius: 5px; padding: 2px 7px; background: var(--raised); font-size: 11px; }
 .failed { color: var(--error); }
-.success { color: var(--accent); }
-.request-url { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.success { color: var(--success); }
+.request-url { font-weight: 600; font-size: 12px; overflow-wrap: anywhere; }
 small { font-size: 11px; color: var(--muted); }
-#request-details { min-width: 0; display: flex; flex-direction: column; }
-.detail-toolbar { padding: 20px 24px 12px; display: flex; align-items: start; gap: 12px; }
-.detail-heading { flex: 1; min-width: 0; }
-h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
-#detail-meta { color: var(--muted); font-size: 12px; margin: 5px 0 0; }
-#view-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); padding: 0 18px; gap: 4px; flex-shrink: 0; }
-#view-tabs button { background: transparent; border: 0; border-radius: 0; padding: 12px 10px; color: var(--muted); font-size: 12px; }
-#view-tabs button[aria-selected="true"] { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
+#request-details { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.detail-toolbar { flex: none; padding: 16px 18px 10px; display: flex; flex-wrap: wrap; align-items: start; gap: 10px; }
+.detail-heading { flex: 1; min-width: 160px; }
+h2 { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+#detail-meta { color: var(--muted); font-size: 11px; margin: 4px 0 0; }
+.request-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.request-actions button { min-height: 32px; padding: 6px 9px; font-size: 11px; }
+#fail-request { color: var(--error); }
+#view-tabs { flex: none; display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); padding: 0 10px; gap: 2px; }
+#view-tabs button { background: transparent; border: 0; border-radius: 0; padding: 11px 10px; color: var(--muted); font-size: 12px; }
+#view-tabs button[aria-selected="true"] { color: var(--ink); box-shadow: inset 0 -2px var(--ink); }
 #views { display: none; }
-pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
-  font: 12px/1.85 ui-monospace, "SFMono-Regular", Consolas, monospace; tab-size: 2; }
-.empty-state { padding: 48px 22px; text-align: center; color: var(--muted); }
+#detail { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+pre { padding: 18px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 12px/1.8 ui-monospace, "SFMono-Regular", Consolas, monospace; tab-size: 2; }
+.empty-state { padding: 36px 20px; text-align: center; color: var(--muted); }
 .empty-state strong { color: var(--ink); font-weight: 600; }
-.empty-state p { font-size: 12px; max-width: 240px; margin: 8px auto; }
-#failures { position: absolute; right: 28px; top: 106px; z-index: 2; width: 222px; }
-#failures summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--accent);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 11px 14px; }
+.empty-state p { font-size: 12px; max-width: 250px; margin: 8px auto; }
+#failures { flex: none; }
+#failures summary { cursor: pointer; font-size: 12px; font-weight: 600; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
 #rule-count:not(:empty) { margin-left: 4px; background: var(--tint); padding: 1px 6px; border-radius: 5px; }
-#failures[open] { position: fixed; top: 22px; right: 22px; width: min(440px, calc(100vw - 32px));
-  max-height: calc(100dvh - 44px); overflow: auto; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 90px #0005; z-index: 5; }
+#failures[open] { position: fixed; top: 20px; right: 20px; width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px); overflow: auto; overscroll-behavior: contain; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 15px 70px #0002; z-index: 5; }
 #failures[open] summary { position: sticky; top: 0; border: 0; border-bottom: 1px solid var(--line);
-  border-radius: 0; padding: 20px; font-size: 15px; z-index: 1; }
+  border-radius: 0; padding: 18px; font-size: 15px; z-index: 1; }
 #failures[open] summary::after { content: "×"; float: right; font-size: 20px; line-height: 20px; color: var(--muted); }
-.panel-body { padding: 20px; }
+.panel-body { padding: 18px; }
 .panel-body > p:first-child { margin-top: 0; }
-.panel-body p { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.panel-body p { color: var(--muted); font-size: 12px; line-height: 1.65; }
+#simulation-scope { overflow-wrap: anywhere; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 #failures label { display: grid; gap: 6px; font-size: 12px; font-weight: 500; }
-#failure-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; margin: 22px 0 14px; }
+#failure-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; margin: 18px 0 14px; }
 #response-settings, #enable-rule { grid-column: 1 / -1; }
-#failure-body { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; }
-#failure-rules { list-style: none; padding: 0; margin: 16px 0; }
-#failure-rules li { display: flex; gap: 12px; align-items: center; padding: 12px;
-  border: 1px solid var(--line); border-radius: 9px; background: var(--raised); margin-bottom: 8px; }
+#failure-body { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
+#failure-rules { list-style: none; padding: 0; margin: 14px 0; }
+#failure-rules li { display: flex; gap: 10px; align-items: center; padding: 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--raised); margin-bottom: 8px; }
 .rule-description { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
-#failure-rules button { font-size: 11px; min-height: 32px; padding: 6px 9px; }
-#failure-status { color: var(--accent); }
+#failure-rules button { font-size: 11px; min-height: 30px; padding: 5px 8px; }
+#failure-status { color: var(--ink); }
 #clear-failures { width: 100%; font-size: 12px; }
-@media (max-width: 900px) {
-  nav { flex-wrap: wrap; padding-right: 28px; }
-  #status { width: 100%; min-height: 25px; }
-  #failures { top: 162px; }
-  main { height: calc(100dvh - 300px); grid-template-columns: minmax(230px, 36%) minmax(0, 1fr); }
+@media (max-width: 700px) {
+  header { padding: 10px 14px; gap: 10px; }
+  .brand-mark { width: 30px; height: 30px; }
+  .brand p { display: none; }
+  #access { gap: 5px; }
+  #key { width: 150px; }
+  #access button { font-size: 11px; padding: 7px; }
+  nav { padding: 10px 14px; gap: 6px; }
+  #query { min-width: 130px; }
+  #device { max-width: 48%; }
+  #status { font-size: 10px; }
+  #session-context, #session-connect { margin: 0 14px 10px; }
+  #session-description { font-size: 10px; }
+  #session-actions { gap: 5px; }
+  #session-actions button { padding: 6px; font-size: 10px; }
+  #session-connect label { min-width: 140px; }
+  #session-list { margin: 0 14px 14px; }
+  main { margin: 0 14px 14px; grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(100px, 32%) minmax(0, 1fr); }
+  #calls { border-right: 0; border-bottom: 1px solid var(--line); }
+  .detail-toolbar { padding: 10px 12px 6px; gap: 6px; }
+  #view-tabs { padding: 0 4px; }
+  #view-tabs button { padding: 8px; font-size: 11px; }
+  pre { padding: 12px; font-size: 11px; }
+  #failures[open] { top: 16px; right: 16px; max-height: calc(100dvh - 32px); }
 }
-@media (max-width: 600px) {
-  header { padding: 16px; gap: 16px; }
-  #access { width: 100%; }
-  #key { flex: 1; width: 120px; }
-  #access button { font-size: 12px; padding: 8px; }
-  nav { padding: 16px; gap: 8px; }
-  #session-context { margin: 0 16px 16px; align-items: start; flex-direction: column; }
-  #session-list { margin: 0 16px 16px; grid-template-columns: minmax(0, 1fr); }
-  #session-connect { margin: 0 16px 16px; }
-  #query { width: 100%; flex-basis: 100%; }
-  #device { max-width: 53%; }
-  #status { width: auto; margin-left: auto; min-height: 0; }
-  #failures { position: relative; width: auto; right: auto; top: auto; margin: 0 16px 16px; }
-  #failures[open] { position: fixed; right: 16px; top: 16px; margin: 0; width: calc(100vw - 32px); max-height: calc(100dvh - 32px); }
-  main { margin: 0 16px 16px; height: auto; min-height: 560px; grid-template-columns: minmax(0, 1fr); }
-  #calls { max-height: 280px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .detail-toolbar { padding: 16px; }
-  #view-tabs { padding: 0 8px; }
-  #view-tabs button { padding: 12px 8px; }
-  pre { padding: 16px; font-size: 11px; max-height: 500px; }
+@media (max-height: 600px) and (min-width: 701px) {
+  header { padding-top: 8px; padding-bottom: 8px; }
+  nav { padding-top: 8px; padding-bottom: 8px; }
+  .session-selected #session-connect { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { button { transition: none; } }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand"><span class="brand-mark" aria-hidden="true">V</span>
-    <div><h1>Vigil</h1><p>Backend inspector</p></div>
-  </div>
+  <div class="brand"><!--APP_BRAND--></div>
   <form id="access">
     <input id="key" type="password" aria-label="Inspector read key" placeholder="Inspector read key" autocomplete="off" required>
     <button class="primary">Connect</button>
@@ -809,12 +888,14 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
   <input id="query" type="search" aria-label="Search captures" placeholder="Search URL, method, status, or trace ID">
   <select id="device" aria-label="Frontend session"></select>
   <span id="status" role="status">Disconnected.</span>
-</nav>
 <details id="failures" hidden>
-  <summary>Express failure simulation <span id="rule-count"></span></summary>
+  <summary>Response controls <span id="rule-count"></span></summary>
   <div class="panel-body">
   <p id="simulation-scope"></p>
-  <p>Enable a rule, then make the matching request from your development app.</p>
+  <p id="simulation-unavailable" hidden>Response controls are not configured on this server. A server control key and simulation controller are required.</p>
+  <div id="simulation-controls">
+  <p>Mock a response or fail a request for the selected session. Other devices keep using the real API.</p>
+  <p id="request-key-help">This server also requires the app’s Vigil debug key on API requests before a rule can apply.</p>
   <label>Simulation control key
     <input id="control-key" type="password" autocomplete="off" placeholder="Server control key">
   </label>
@@ -825,13 +906,14 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
       <option value="">Before route</option>
     </select></label>
     <label id="effect-settings">Effect <select id="failure-effect">
+      <option value="mock">Mock response</option>
       <option value="httpError">HTTP error response</option>
       <option value="exception">Backend exception</option>
       <option value="delay">Delay and forward</option>
       <option value="timeout">Timeout</option>
       <option value="disconnect">Disconnect</option>
     </select></label>
-    <label id="status-settings">Error status <input id="failure-code" type="number" min="400" max="599" value="500" required></label>
+    <label id="status-settings">Response status <input id="failure-code" type="number" min="200" max="599" value="200" required></label>
     <label id="delay-settings">Delay (ms) <input id="failure-delay" type="number" min="0" max="120000" value="0" required></label>
     <label>Request count <input id="failure-times" type="number" min="1" max="10000" placeholder="Until removed"></label>
     <label id="response-settings">JSON response body
@@ -845,7 +927,9 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
   <ul id="failure-rules"></ul>
   <button id="clear-failures" type="button">Remove all rules</button>
   </div>
+  </div>
 </details>
+</nav>
 <section id="session-context" aria-label="Session overview">
   <div><h2 id="session-heading">Device sessions</h2><p id="session-description"></p></div>
   <div id="session-actions" hidden>
@@ -870,7 +954,11 @@ pre { padding: 24px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-
       <div class="detail-heading"><h2 id="detail-title">Request details</h2>
         <p id="detail-meta"></p>
       </div>
-      <button id="copy-detail" type="button" disabled>Copy</button>
+      <div class="request-actions">
+        <button id="mock-request" type="button" disabled>Mock response</button>
+        <button id="fail-request" type="button" disabled>Fail request</button>
+        <button id="copy-detail" type="button" disabled>Copy</button>
+      </div>
       <select id="views" aria-label="Detail view">
         <option value="overview">Overview</option>
         <option value="request">Request</option>

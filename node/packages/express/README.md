@@ -203,14 +203,14 @@ app.use(simulation.middleware());
 ```
 
 Connect to the desktop inspector with its read key, select a frontend session,
-and expand **Express failure
-simulation**, and enter the separate simulation control key. Choose a method,
+and expand **Response controls**, and enter the separate simulation control key. Choose a method,
 exact path, and failure location, then enable the rule. Choose **Before route**
 to configure the HTTP and transport effects below. Rules apply to requests carrying
 the matching development `Vigil-Key`. The example Flutter interceptor already
 sends that header. Remove any matching Flutter mock rule so the request
 reaches Express.
 
+- **Mock response** sends custom JSON with a status from 200 to 599, without calling the route.
 - **HTTP error response** sends a real 4xx/5xx response with a custom JSON body.
 - **Backend exception** passes an Error to the application's Express error
   handlers so their normal response formatting and diagnostics run.
@@ -273,6 +273,26 @@ Other devices do not consume its request count. Rules for the same method/path
 on different sessions are independent. Named code failure points use the same
 matching behavior. `req.vigil.sessionId` exposes the validated ID to app code.
 Allow `Vigil-Session-Id` and `Vigil-Device-Type` in cross-origin request headers.
+
+For a session-based development inspector, set `allowCapturedPaths: true` to
+offer paths captured by the selected session. Those paths are validated against
+that session's retained uploads when a rule is created. Static `allowedPaths`
+remain available, and `/vigil` endpoints cannot be simulated.
+
+`requireDebugKey: false` is an explicit option for session-only controls. Every
+rule must then contain a valid session ID; requests with a missing or different
+ID are unaffected. Rule creation still requires the separate server control
+key, and server diagnostics retain their debug-key gate. The default remains
+`requireDebugKey: true`.
+
+The desktop's **Mock response** and **Fail request** actions prefill the selected
+request's method and path with a one-shot count. A failure passes an exception
+to the app's error handler; it needs no manually supplied response body.
+
+Pass `branding: { name: 'Your app', logoSvg: svgSource }` to
+`vigilInspectorRouter` to display the app's logo and name. The web inspector uses
+neutral surfaces and independent request/detail scrolling; the Flutter inspector
+inherits its host app's theme.
 
 ## Browser clients
 

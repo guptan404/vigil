@@ -22,6 +22,64 @@ function setup() {
 }
 
 describe("Device sessions", () => {
+  it("mocks a successful response only for a captured path in the selected session", async () => {
+    const app = express();
+    const sink = createMemoryVigilSink();
+    const simulation = new VigilFailureSimulation({
+      enabled: true, debugKey: "debug", controlKey: "control", allowedPaths: [], allowCapturedPaths: true,
+    });
+    app.use(express.json());
+    app.post("/ingest", vigilIngestHandler({ enabled: true, ingestKey: "ingest", onBatch: sink.onBatch }));
+    app.use("/inspect", vigilInspectorRouter({ enabled: true, sink, readKey: "read", simulation }));
+    app.use(simulation.middleware());
+    app.get("/profile", (_req, res) => res.json({ source: "real" }));
+    await request(app).post("/ingest").set("Vigil-Ingest-Key", "ingest").send({
+      version: 1, client: { sessionId: "phone-a" },
+      calls: [{ id: "call", request: { method: "GET", url: "https://api.example/profile" } }],
+    }).expect(202);
+    const rule = { sessionId: "phone-a", method: "GET", path: "/profile", effect: "mock", times: 1, body: { source: "mock" } };
+    await request(app).post("/inspect/simulation").set("Vigil-Control-Key", "control")
+      .send({ ...rule, sessionId: "phone-b" }).expect(400);
+    await request(app).post("/inspect/simulation").set("Vigil-Control-Key", "control")
+      .send({ ...rule, path: "/not-captured" }).expect(400);
+    await request(app).post("/inspect/simulation").set("Vigil-Control-Key", "control")
+      .send({ ...rule, method: "POST" }).expect(400);
+    await request(app).post("/inspect/simulation").set("Vigil-Control-Key", "control").send(rule).expect(201);
+    expect((await request(app).get("/profile").set("Vigil-Session-Id", "phone-a")).body).toEqual({ source: "real" });
+    expect((await request(app).get("/profile").set("Vigil-Key", "debug").set("Vigil-Session-Id", "phone-b")).body).toEqual({ source: "real" });
+    const mocked = await request(app).get("/profile").set("Vigil-Key", "debug").set("Vigil-Session-Id", "phone-a");
+    expect(mocked.status).toBe(200);
+    expect(mocked.body).toEqual({ source: "mock" });
+    expect(mocked.headers["vigil-simulation"]).toBe("mock");
+    expect((await request(app).get("/profile").set("Vigil-Key", "debug").set("Vigil-Session-Id", "phone-a")).body).toEqual({ source: "real" });
+  });
+
+  it("escapes app branding and embeds the logo as an inert image", async () => {
+    const app = express();
+    const logo = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h10v10z"/></svg>';
+    app.use("/inspect", vigilInspectorRouter({ enabled: true, sink: createMemoryVigilSink(), readKey: "read",
+      branding: { name: '<img src=x onerror="alert(1)">', logoSvg: logo } }));
+    const response = await request(app).get("/inspect/");
+    expect(response.text).not.toContain('<img src=x');
+    expect(response.text).toContain('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
+    expect(response.text).toContain(Buffer.from(logo).toString("base64"));
+    expect(response.headers["content-security-policy"]).toContain("img-src data:");
+  });
+
+  it("requires an exact device identity when session controls do not require the debug header", async () => {
+    const app = express();
+    const simulation = new VigilFailureSimulation({
+      enabled: true, debugKey: "debug", controlKey: "control", allowedPaths: ["/profile"], requireDebugKey: false,
+    });
+    expect(() => simulation.put({ method: "GET", path: "/profile", effect: "mock" })).toThrow(/session ID/);
+    simulation.put({ sessionId: "phone-a", method: "GET", path: "/profile", effect: "mock", body: { mocked: true } });
+    app.use(simulation.middleware());
+    app.get("/profile", (_req, res) => res.json({ mocked: false }));
+    expect((await request(app).get("/profile")).body).toEqual({ mocked: false });
+    expect((await request(app).get("/profile").set("Vigil-Session-Id", "phone-b")).body).toEqual({ mocked: false });
+    expect((await request(app).get("/profile").set("Vigil-Session-Id", "phone-a")).body).toEqual({ mocked: true });
+  });
+
   it("groups by session ID and serves only the selected session's latest requests", async () => {
     const { app } = setup();
     for (const [sessionId, deviceType, state] of [

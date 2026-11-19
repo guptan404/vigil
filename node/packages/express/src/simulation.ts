@@ -2,7 +2,7 @@ import { isVigilSessionId } from "./sessions.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Request, RequestHandler } from "express";
 
-export type VigilFailureEffect = "httpError" | "exception" | "delay" | "timeout" | "disconnect";
+export type VigilFailureEffect = "mock" | "httpError" | "exception" | "delay" | "timeout" | "disconnect";
 
 export interface VigilFailureRuleInput {
   method: string;
@@ -41,6 +41,10 @@ export interface VigilFailureSimulationConfig {
   controlKey: string;
   /** Exact application endpoints that may be simulated. */
   allowedPaths: readonly string[];
+  /** Also allow paths captured by the inspector for the selected session. */
+  allowCapturedPaths?: boolean;
+  /** Defaults true. Set false only for controls restricted to a device session. */
+  requireDebugKey?: boolean;
   /** Named operations and factories for the real errors those operations throw. */
   failurePoints?: Readonly<Record<string, () => Error>>;
   /** Defaults to enabled outside production. */
@@ -61,7 +65,7 @@ export class VigilFailureSimulation {
         config.debugKey === config.controlKey) {
       throw new Error("Simulation needs distinct debug and control keys.");
     }
-    if (config.allowedPaths.length === 0 || config.allowedPaths.some(path => !validPath(path))) {
+    if ((!config.allowCapturedPaths && config.allowedPaths.length === 0) || config.allowedPaths.some(path => !validPath(path))) {
       throw new Error("Simulation needs at least one exact application path.");
     }
     this.config = { ...config };
@@ -86,6 +90,14 @@ export class VigilFailureSimulation {
     return [...this.points.keys()];
   }
 
+  get allowCapturedPaths(): boolean {
+    return this.config.allowCapturedPaths ?? false;
+  }
+
+  get requiresDebugKey(): boolean {
+    return this.config.requireDebugKey ?? true;
+  }
+
   /** Throws the registered application error only when a matching rule is armed. */
   failPoint(req: Request, name: string): void {
     const rule = this.takeRule(req, name);
@@ -107,9 +119,9 @@ export class VigilFailureSimulation {
   }
 
   /** Validates before atomically replacing the rule for a method and path. */
-  put(input: VigilFailureRuleInput): VigilFailureRule {
+  put(input: VigilFailureRuleInput, capturedPaths: readonly string[] = []): VigilFailureRule {
     if (!this.enabled) throw new Error("Failure simulation is disabled.");
-    const rule = this.parseRule(input);
+    const rule = this.parseRule(input, capturedPaths);
     const previous = [...this.rules.values()].find(
       item => item.method === rule.method && item.path === rule.path &&
         item.failurePoint === rule.failurePoint && item.sessionId === rule.sessionId,
@@ -149,6 +161,7 @@ export class VigilFailureSimulation {
       const apply = () => {
         if (res.destroyed || res.writableEnded) return;
         switch (rule.effect) {
+          case "mock":
           case "httpError":
             res.status(rule.statusCode).json(structuredClone(rule.body));
             break;
@@ -181,7 +194,7 @@ export class VigilFailureSimulation {
 
   private takeRule(req: Request, failurePoint?: string): VigilFailureRule | undefined {
     if (!this.enabled || req.method === "OPTIONS" ||
-        !timingSafeEqual(hash(req.header("Vigil-Key") ?? ""), this.debugHash)) {
+        (this.requiresDebugKey && !timingSafeEqual(hash(req.header("Vigil-Key") ?? ""), this.debugHash))) {
       return undefined;
     }
     const sessionId = req.header("Vigil-Session-Id");
@@ -201,15 +214,17 @@ export class VigilFailureSimulation {
     return rule;
   }
 
-  private parseRule(input: VigilFailureRuleInput): VigilFailureRule {
+  private parseRule(input: VigilFailureRuleInput, capturedPaths: readonly string[]): VigilFailureRule {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new Error("Enter a failure rule.");
     }
     if (typeof input.method !== "string" || !/^[A-Z]+$/.test(input.method) ||
-        input.method === "OPTIONS" || !this.paths.has(input.path)) {
+        input.method === "OPTIONS" || !validPath(input.path) ||
+        (!this.paths.has(input.path) && !(this.allowCapturedPaths &&
+          isVigilSessionId(input.sessionId) && capturedPaths.includes(input.path)))) {
       throw new Error("Choose an HTTP method and an allowed exact path.");
     }
-    const effects: VigilFailureEffect[] = ["httpError", "exception", "delay", "timeout", "disconnect"];
+    const effects: VigilFailureEffect[] = ["mock", "httpError", "exception", "delay", "timeout", "disconnect"];
     if (!effects.includes(input.effect)) throw new Error("Choose a supported failure effect.");
     if (input.failurePoint !== undefined &&
         (typeof input.failurePoint !== "string" || !this.points.has(input.failurePoint) ||
@@ -217,13 +232,13 @@ export class VigilFailureSimulation {
          input.statusCode !== undefined || input.body !== undefined)) {
       throw new Error("Code failure points use a registered error factory. Choose exception and omit status, body and delay.");
     }
-    if (input.sessionId !== undefined && !isVigilSessionId(input.sessionId)) {
+    if ((!this.requiresDebugKey || input.sessionId !== undefined) && !isVigilSessionId(input.sessionId)) {
       throw new Error("Enter a valid frontend session ID.");
     }
-    const statusCode = input.statusCode ?? 500;
+    const statusCode = input.statusCode ?? (input.effect === "mock" ? 200 : 500);
     const delayMs = input.delayMs ?? (input.effect === "timeout" ? 30000 : 0);
-    if (!Number.isInteger(statusCode) || statusCode < 400 || statusCode > 599) {
-      throw new Error("Error status must be between 400 and 599.");
+    if (!Number.isInteger(statusCode) || statusCode < (input.effect === "mock" ? 200 : 400) || statusCode > 599) {
+      throw new Error(input.effect === "mock" ? "Response status must be between 200 and 599." : "Error status must be between 400 and 599.");
     }
     if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 120000 ||
         (["delay", "timeout"].includes(input.effect) && delayMs === 0)) {
@@ -232,7 +247,8 @@ export class VigilFailureSimulation {
     if (input.times !== undefined && (!Number.isInteger(input.times) || input.times < 1 || input.times > 10000)) {
       throw new Error("Request count must be between 1 and 10000, or omitted.");
     }
-    const encoded = JSON.stringify(input.body === undefined ? { error: "Vigil simulated failure" } : input.body);
+    const encoded = JSON.stringify(input.body === undefined
+      ? input.effect === "mock" ? {} : { error: "Vigil simulated failure" } : input.body);
     if (encoded === undefined || Buffer.byteLength(encoded) > 64 * 1024) {
       throw new Error("JSON body must be at most 64 KiB.");
     }

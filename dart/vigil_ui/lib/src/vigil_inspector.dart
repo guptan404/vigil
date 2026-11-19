@@ -1739,23 +1739,7 @@ Color _surfaceBase(BuildContext context) {
 
 ThemeData _inspectorTheme(BuildContext context) {
   final parent = Theme.of(context);
-  final isDark = parent.brightness == Brightness.dark;
-  final seed = isDark ? const Color(0xFF86D9AC) : const Color(0xFF137955);
-  final generated = ColorScheme.fromSeed(
-    seedColor: seed,
-    brightness: parent.brightness,
-  );
-  final scheme = generated.copyWith(
-    primary: seed,
-    surface: isDark ? const Color(0xFF0E1512) : const Color(0xFFF7F9F8),
-    surfaceContainerLowest:
-        isDark ? const Color(0xFF151E19) : const Color(0xFFFFFFFF),
-    surfaceContainerLow:
-        isDark ? const Color(0xFF19221E) : const Color(0xFFF1F4F2),
-    surfaceContainerHighest:
-        isDark ? const Color(0xFF26312C) : const Color(0xFFE9EEEB),
-    outlineVariant: isDark ? const Color(0xFF2B3B31) : const Color(0xFFDDE4E0),
-  );
+  final scheme = parent.colorScheme;
 
   final textTheme = parent.textTheme.apply(
     bodyColor: scheme.onSurface,
