@@ -131,8 +131,10 @@ class App extends StatelessWidget {
 an explicit launcher, or render `VigilInspector` from your own debug menu.
 In request details, use **Copy cURL** to send a replayable command to a
 backend teammate. **Copy lifecycle** and **Share lifecycle** include the
-captured request, response, timings, trace, and error as JSON. Review that
-content before sharing. Vigil masks configured headers, JSON fields, and query
+captured request, response, timings, trace, and error as JSON.
+**Copy endpoint**, **Copy request**, and **Copy response** copy individual
+parts, and **Copy all** copies them together, with JSON pretty-printed. Choose which of these appear with
+`copyOptions: VigilCopyOptions(...)`. Review copied content before sharing. Vigil masks configured headers, JSON fields, and query
 parameters. URL paths and unconfigured fields can contain sensitive values.
 Saved sessions use local app preferences.
 

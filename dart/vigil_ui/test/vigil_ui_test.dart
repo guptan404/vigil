@@ -71,7 +71,10 @@ void main() {
     expect(copied, r'$["nested"]["field"]');
     expect(find.text('unrelated: true'), findsNothing);
 
-    await tester.tap(find.text('Compare'));
+    // Scrolling the response to the JSON search collapsed the header to
+    // icon-only actions.
+    expect(find.byTooltip('Expand header'), findsOneWidget);
+    await tester.tap(find.byTooltip('Compare'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('PATCH /earlier'));
     await tester.pumpAndSettle();
@@ -295,6 +298,8 @@ void main() {
 
     expect(find.textContaining('example.com'), findsOneWidget);
     expect(find.text('200'), findsOneWidget);
+    // The trigger time is visible on phone-width dashboards.
+    expect(find.text(_clock(vigil.calls.single.startedAt)), findsOneWidget);
 
     await tester.tap(find.textContaining('/api/v3/balance/all'));
     await tester.pumpAndSettle();
@@ -404,6 +409,8 @@ void main() {
 
     expect(find.text('No server response'), findsOneWidget);
     expect(find.text('Connection refused'), findsOneWidget);
+    await _scrollDetailTo(
+        tester, find.text('No gated server debug payload received'));
     expect(find.text('No gated server debug payload received'), findsOneWidget);
   });
 
@@ -441,9 +448,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('503'), findsWidgets);
+    await _scrollDetailTo(tester, find.textContaining('Service unavailable'));
     expect(find.textContaining('Service unavailable'), findsOneWidget);
-    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
-    await tester.pumpAndSettle();
+    await _scrollDetailTo(
+        tester, find.text('No gated server debug payload received'));
     expect(find.text('No gated server debug payload received'), findsOneWidget);
   });
 
@@ -568,20 +576,257 @@ void main() {
     );
     expect(lifecycle['durationMs'], 125);
 
-    await tester.tap(find.text('Request'));
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Copy body'));
+    // Selective copy actions in the header copy readable, indented content.
+    await tester.tap(find.text('Copy endpoint'));
     await tester.pump();
-    expect(clipboardText, requestBody);
+    expect(clipboardText, 'https://example.com/api/lifecycle?source=test');
 
-    await tester.tap(find.text('Response'));
+    await tester.tap(find.text('Copy request'));
+    await tester.pump();
+    expect(clipboardText, '{\n  "username": "vigil"\n}');
+
+    await tester.tap(find.text('Copy response'));
+    await tester.pump();
+    expect(clipboardText, '{\n  "authenticated": true\n}');
+
+    // One action copies the endpoint, request, and response together.
+    await tester.tap(find.text('Copy all'));
+    await tester.pump();
+    expect(
+      clipboardText,
+      'Endpoint\n'
+      'POST https://example.com/api/lifecycle?source=test\n'
+      '\n'
+      'Request\n'
+      '{\n  "username": "vigil"\n}\n'
+      '\n'
+      'Response (201 Created)\n'
+      '{\n  "authenticated": true\n}',
+    );
+
+    await tester.tap(find.widgetWithText(Tab, 'Request'));
     await tester.pumpAndSettle();
-    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
-    await tester.pumpAndSettle();
+    await _scrollDetailTo(tester, find.text('Copy body'));
     await tester.tap(find.text('Copy body'));
     await tester.pump();
-    expect(clipboardText, responseBody);
+    expect(clipboardText, '{\n  "username": "vigil"\n}');
+
+    await tester.tap(find.widgetWithText(Tab, 'Response'));
+    await tester.pumpAndSettle();
+    await _scrollDetailTo(tester, find.text('Copy body'));
+    await tester.tap(find.text('Copy body'));
+    await tester.pump();
+    expect(clipboardText, '{\n  "authenticated": true\n}');
   });
+
+  testWidgets('copy options hide disabled copy actions', (tester) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final vigil = Vigil.instance..init();
+    _recordJsonCall(vigil, path: '/api/options', responseFields: 2);
+
+    await tester.pumpWidget(MaterialApp(
+      home: VigilInspector(
+        vigil: vigil,
+        copyOptions: const VigilCopyOptions(
+          endpoint: false,
+          responseContent: false,
+        ),
+      ),
+    ));
+    await tester.tap(find.textContaining('/api/options'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy endpoint'), findsNothing);
+    expect(find.text('Copy request'), findsOneWidget);
+    expect(find.text('Copy response'), findsNothing);
+
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    // Copy all leaves out the parts that are disabled.
+    await tester.tap(find.text('Copy all'));
+    await tester.pump();
+    expect(clipboardText, 'Request\n{\n  "username": "vigil"\n}');
+
+    await tester.tap(find.widgetWithText(Tab, 'Request'));
+    await tester.pumpAndSettle();
+    expect(find.text('Copy URL'), findsNothing);
+    await _scrollDetailTo(tester, find.text('Copy body'));
+    expect(find.text('Copy body'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(Tab, 'Response'));
+    await tester.pumpAndSettle();
+    await _scrollDetailTo(tester, find.text('Headers'));
+    await tester.drag(find.byType(ListView).last, const Offset(0, -400));
+    await tester.pumpAndSettle();
+    expect(find.text('Copy body'), findsNothing);
+  });
+
+  testWidgets('copy options can disable every selective copy action',
+      (tester) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final vigil = Vigil.instance..init();
+    _recordJsonCall(vigil, path: '/api/none', responseFields: 2);
+
+    await tester.pumpWidget(MaterialApp(
+      home: VigilInspector(
+        vigil: vigil,
+        copyOptions: const VigilCopyOptions.none(),
+      ),
+    ));
+    await tester.tap(find.textContaining('/api/none'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy endpoint'), findsNothing);
+    expect(find.text('Copy request'), findsNothing);
+    expect(find.text('Copy response'), findsNothing);
+    expect(find.text('Copy all'), findsNothing);
+    expect(find.text('Copy cURL'), findsOneWidget);
+  });
+
+  testWidgets('copy options can hide only the copy all action', (tester) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final vigil = Vigil.instance..init();
+    _recordJsonCall(vigil, path: '/api/no-all', responseFields: 2);
+
+    await tester.pumpWidget(MaterialApp(
+      home: VigilInspector(
+        vigil: vigil,
+        copyOptions: const VigilCopyOptions(all: false),
+      ),
+    ));
+    await tester.tap(find.textContaining('/api/no-all'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy all'), findsNothing);
+    expect(find.text('Copy endpoint'), findsOneWidget);
+    expect(find.text('Copy request'), findsOneWidget);
+    expect(find.text('Copy response'), findsOneWidget);
+  });
+
+  testWidgets('detail header collapses to icons on scroll and re-expands',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final vigil = Vigil.instance..init();
+    _recordJsonCall(vigil, path: '/api/long', responseFields: 40);
+
+    await tester.pumpWidget(MaterialApp(home: VigilInspector(vigil: vigil)));
+    await tester.tap(find.textContaining('/api/long'));
+    await tester.pumpAndSettle();
+
+    // Expanded: labelled buttons.
+    expect(find.text('Copy lifecycle'), findsOneWidget);
+    expect(find.byTooltip('Collapse header'), findsOneWidget);
+    expect(find.byTooltip('Expand header'), findsNothing);
+
+    await tester.tap(find.widgetWithText(Tab, 'Response'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -300));
+    await tester.pumpAndSettle();
+
+    // Collapsed: icon-only actions with tooltips and an expand button.
+    expect(find.text('Copy lifecycle'), findsNothing);
+    expect(find.byTooltip('Copy lifecycle'), findsOneWidget);
+    expect(find.byTooltip('Copy endpoint'), findsOneWidget);
+    expect(find.byTooltip('Copy request'), findsOneWidget);
+    expect(find.byTooltip('Copy response'), findsOneWidget);
+    expect(find.byTooltip('Copy all'), findsOneWidget);
+    expect(find.text('/api/long'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Expand header'));
+    await tester.pumpAndSettle();
+    expect(find.text('Copy lifecycle'), findsOneWidget);
+    expect(find.byTooltip('Expand header'), findsNothing);
+
+    // The header can also be collapsed manually.
+    await tester.tap(find.byTooltip('Collapse header'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Expand header'), findsOneWidget);
+  });
+}
+
+String _clock(DateTime value) {
+  final local = value.toLocal();
+  String two(int part) => part.toString().padLeft(2, '0');
+  return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+}
+
+/// Scrolls the visible request-detail tab until [finder] is on screen.
+Future<void> _scrollDetailTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    150,
+    scrollable: find
+        .descendant(
+          of: find.byType(ListView).last,
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
+  await tester.pumpAndSettle();
+}
+
+void _recordJsonCall(
+  Vigil vigil, {
+  required String path,
+  required int responseFields,
+}) {
+  final startedAt = DateTime.utc(2026, 10, 3, 8, 30);
+  final id = vigil.startCall(
+    VigilHttpRequest(
+      method: 'POST',
+      uri: Uri.parse('https://example.com$path'),
+      headers: const {'content-type': 'application/json'},
+      body: const VigilBodySummary(
+        kind: VigilBodyKind.json,
+        text: '{"username":"vigil"}',
+        contentType: 'application/json',
+      ),
+      timestamp: startedAt,
+      traceContext: VigilTraceContext.generate(),
+    ),
+  );
+  vigil.completeCall(
+    id,
+    VigilHttpResponse(
+      statusCode: 200,
+      headers: const {'content-type': 'application/json'},
+      body: VigilBodySummary(
+        kind: VigilBodyKind.json,
+        text: jsonEncode({
+          for (var i = 0; i < responseFields; i++) 'field$i': 'value $i',
+        }),
+        contentType: 'application/json',
+      ),
+      timestamp: startedAt.add(const Duration(milliseconds: 80)),
+    ),
+  );
 }

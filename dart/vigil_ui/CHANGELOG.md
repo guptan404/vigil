@@ -2,6 +2,10 @@
 
 - Added expandable JSON search and JSON-path copying, host/method/status/duration filters, saved sessions with notes and import/export, and request/response comparison.
 - Added edit/replay and local mock editors, session-ID copying, and refined Vigil branding.
+- Added separate copy actions for the endpoint, request content, and response content, plus a **Copy all** action that copies them together, configurable with `VigilCopyOptions`.
+- Copied JSON bodies and session JSON are now pretty-printed so formatting survives pasting into notes and editors.
+- The request details header collapses to icon-only actions while scrolling, with an expand button to restore it.
+- The request list now always shows when each call was triggered, including on phone-width screens.
 
 ## 0.1.2
 

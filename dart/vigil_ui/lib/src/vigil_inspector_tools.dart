@@ -6,16 +6,24 @@ class _InspectorTools extends InheritedWidget {
     this.vigil,
     this.savedCalls,
     this.replay,
+    this.copyOptions = const VigilCopyOptions(),
   });
 
   final Vigil? vigil;
   final List<VigilHttpCall>? savedCalls;
   final VigilReplay? replay;
+  final VigilCopyOptions copyOptions;
 
   List<VigilHttpCall> get calls => savedCalls ?? vigil!.calls;
 
   @override
   bool updateShouldNotify(_InspectorTools oldWidget) => true;
+
+  static VigilCopyOptions copyOptionsOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_InspectorTools>()
+          ?.copyOptions ??
+      const VigilCopyOptions();
 }
 
 class _LiveCallDetail extends StatelessWidget {

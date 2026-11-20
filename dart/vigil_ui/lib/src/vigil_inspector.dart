@@ -6,6 +6,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vigil_core/vigil_core.dart';
 
+import 'vigil_copy_options.dart';
+
 part 'vigil_inspector_tools.dart';
 part 'vigil_sessions.dart';
 
@@ -18,7 +20,12 @@ class VigilInspector extends StatefulWidget {
     this.onClose,
     this.replay,
     this.mocks,
+    this.copyOptions = const VigilCopyOptions(),
   });
+
+  /// Which selective copy actions (endpoint, request content, response
+  /// content) are offered in request details. All are enabled by default.
+  final VigilCopyOptions copyOptions;
 
   /// Optional app-provided development transport for replay.
   final VigilReplay? replay;
@@ -66,6 +73,7 @@ class _VigilInspectorState extends State<VigilInspector> {
             builder: (context) => _InspectorTools(
               vigil: _vigil,
               replay: widget.replay,
+              copyOptions: widget.copyOptions,
               child: Scaffold(
                 backgroundColor: _surfaceBase(context),
                 appBar: _InspectorAppBar(
@@ -74,7 +82,10 @@ class _VigilInspectorState extends State<VigilInspector> {
                   onClose: widget.onClose,
                   onSessions: () =>
                       Navigator.of(context).push(MaterialPageRoute<void>(
-                    builder: (_) => _SessionsPage(vigil: _vigil),
+                    builder: (_) => _SessionsPage(
+                      vigil: _vigil,
+                      copyOptions: widget.copyOptions,
+                    ),
                   )),
                   onMocks: widget.mocks == null
                       ? null
@@ -123,6 +134,7 @@ class _VigilInspectorState extends State<VigilInspector> {
                                   builder: (_) => _InspectorTools(
                                     vigil: _vigil,
                                     replay: widget.replay,
+                                    copyOptions: widget.copyOptions,
                                     child: _LiveCallDetail(
                                         call: call, vigil: _vigil),
                                   ),
@@ -605,40 +617,31 @@ class _RequestMeta extends StatelessWidget {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     final style = Theme.of(context).textTheme.bodySmall?.copyWith(color: muted);
 
-    return LayoutBuilder(
-      builder: (context, constraints) => Row(
-        children: [
-          Flexible(
-            child: Text(
-              call.request.uri.host.isEmpty
-                  ? 'Local request'
-                  : call.request.uri.host,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: style,
-            ),
+    return Row(
+      children: [
+        Flexible(
+          child: Text(
+            call.request.uri.host.isEmpty
+                ? 'Local request'
+                : call.request.uri.host,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: style,
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Text('•', style: style),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Text('•', style: style),
+        ),
+        Text(
+          status,
+          style: style?.copyWith(
+            color: statusColor,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
-          Text(
-            status,
-            style: style?.copyWith(
-              color: statusColor,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-          if (constraints.maxWidth >= 210) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Text('•', style: style),
-            ),
-            Text(_formatTime(call.startedAt), style: style),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -722,7 +725,8 @@ class _CallTile extends StatelessWidget {
       button: true,
       label: '${call.request.method} ${call.request.uri}, '
           '${response?.statusCode ?? call.state.name}, '
-          '${call.duration == null ? 'pending' : _formatDuration(call.duration!)}',
+          '${call.duration == null ? 'pending' : _formatDuration(call.duration!)}, '
+          'started at ${_formatTime(call.startedAt)}',
       child: Material(
         color: selected
             ? scheme.primaryContainer.withValues(alpha: 0.36)
@@ -767,7 +771,21 @@ class _CallTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  _DurationLabel(call: call),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _DurationLabel(call: call),
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatTime(call.startedAt),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(width: 2),
                   Icon(
                     Icons.chevron_right_rounded,
@@ -826,11 +844,47 @@ class _CallDetailPage extends StatelessWidget {
   }
 }
 
-class _CallDetailPane extends StatelessWidget {
+class _CallDetailPane extends StatefulWidget {
   const _CallDetailPane({required this.call, required this.vigil});
 
   final VigilHttpCall call;
   final Vigil vigil;
+
+  @override
+  State<_CallDetailPane> createState() => _CallDetailPaneState();
+}
+
+class _CallDetailPaneState extends State<_CallDetailPane> {
+  /// Scroll distance into a tab before the header collapses.
+  static const _collapseOffset = 24.0;
+
+  /// Content must overflow by at least this much before collapsing, so a short
+  /// tab does not end up with a collapsed header and nothing left to scroll.
+  static const _minScrollExtent = 160.0;
+
+  bool _collapsed = false;
+
+  @override
+  void didUpdateWidget(_CallDetailPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.call.id != widget.call.id) _collapsed = false;
+  }
+
+  bool _handleScroll(ScrollUpdateNotification notification) {
+    final metrics = notification.metrics;
+    if (metrics.axis != Axis.vertical) return false;
+    final delta = notification.scrollDelta ?? 0;
+
+    if (!_collapsed &&
+        delta > 0 &&
+        metrics.pixels > _collapseOffset &&
+        metrics.maxScrollExtent > _minScrollExtent) {
+      setState(() => _collapsed = true);
+    } else if (_collapsed && delta < 0 && metrics.pixels <= 0) {
+      setState(() => _collapsed = false);
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -839,7 +893,17 @@ class _CallDetailPane extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _DetailHeader(call: call, vigil: vigil),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _DetailHeader(
+              call: widget.call,
+              vigil: widget.vigil,
+              collapsed: _collapsed,
+              onToggle: () => setState(() => _collapsed = !_collapsed),
+            ),
+          ),
           const TabBar(
             isScrollable: true,
             tabAlignment: TabAlignment.start,
@@ -852,14 +916,17 @@ class _CallDetailPane extends StatelessWidget {
             ],
           ),
           Expanded(
-            child: TabBarView(
-              children: [
-                _OverviewTab(call: call, vigil: vigil),
-                _RequestTab(call: call),
-                _ResponseTab(call: call),
-                _TimingTab(call: call),
-                _ServerDebugTab(call: call),
-              ],
+            child: NotificationListener<ScrollUpdateNotification>(
+              onNotification: _handleScroll,
+              child: TabBarView(
+                children: [
+                  _OverviewTab(call: widget.call, vigil: widget.vigil),
+                  _RequestTab(call: widget.call),
+                  _ResponseTab(call: widget.call),
+                  _TimingTab(call: widget.call),
+                  _ServerDebugTab(call: widget.call),
+                ],
+              ),
             ),
           ),
         ],
@@ -868,148 +935,335 @@ class _CallDetailPane extends StatelessWidget {
   }
 }
 
+/// An action offered in the request details header, rendered as a labelled
+/// button when the header is expanded and as an icon button when collapsed.
+class _HeaderAction {
+  const _HeaderAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.tonal = false,
+  });
+
+  final IconData icon;
+  final String label;
+
+  /// Receives the button's own context, which positions the share sheet.
+  final void Function(BuildContext context)? onPressed;
+  final bool tonal;
+}
+
 class _DetailHeader extends StatelessWidget {
-  const _DetailHeader({required this.call, required this.vigil});
+  const _DetailHeader({
+    required this.call,
+    required this.vigil,
+    required this.collapsed,
+    required this.onToggle,
+  });
 
   final VigilHttpCall call;
   final Vigil vigil;
+  final bool collapsed;
+  final VoidCallback onToggle;
+
+  List<_HeaderAction> _actions(BuildContext context) {
+    final tools = context.dependOnInheritedWidgetOfExactType<_InspectorTools>();
+    final options = _InspectorTools.copyOptionsOf(context);
+    final requestContent = _copyableBody(call.request.body);
+    final responseContent = _copyableBody(call.response?.body);
+
+    return [
+      if (options.all && options.anyContent)
+        _HeaderAction(
+          icon: Icons.content_copy_rounded,
+          label: 'Copy all',
+          tonal: true,
+          onPressed: (context) => _copyWithFeedback(
+            context,
+            _combinedCopy(call, options),
+            'Endpoint, request, and response copied',
+          ),
+        ),
+      if (options.endpoint)
+        _HeaderAction(
+          icon: Icons.link_rounded,
+          label: 'Copy endpoint',
+          onPressed: (context) => _copyWithFeedback(
+            context,
+            call.request.uri.toString(),
+            'Endpoint copied',
+          ),
+        ),
+      if (options.requestContent)
+        _HeaderAction(
+          icon: Icons.call_made_rounded,
+          label: 'Copy request',
+          onPressed: requestContent == null
+              ? null
+              : (context) => _copyWithFeedback(
+                    context,
+                    requestContent,
+                    'Request content copied',
+                  ),
+        ),
+      if (options.responseContent)
+        _HeaderAction(
+          icon: Icons.call_received_rounded,
+          label: 'Copy response',
+          onPressed: responseContent == null
+              ? null
+              : (context) => _copyWithFeedback(
+                    context,
+                    responseContent,
+                    'Response content copied',
+                  ),
+        ),
+      _HeaderAction(
+        icon: Icons.terminal_rounded,
+        label: 'Copy cURL',
+        onPressed: (context) =>
+            _copyWithFeedback(context, vigil.toCurl(call), 'cURL copied'),
+      ),
+      _HeaderAction(
+        icon: Icons.copy_all_rounded,
+        label: 'Copy lifecycle',
+        onPressed: (context) => _copyWithFeedback(
+          context,
+          _lifecycleJson(call),
+          'Lifecycle copied',
+        ),
+      ),
+      if ((tools?.calls.length ?? 0) > 1)
+        _HeaderAction(
+          icon: Icons.compare_arrows_rounded,
+          label: 'Compare',
+          onPressed: (context) =>
+              _chooseComparison(context, call, tools!.calls),
+        ),
+      if (tools?.replay != null && call.state != VigilCallState.pending)
+        _HeaderAction(
+          icon: Icons.replay_rounded,
+          label: 'Edit and replay',
+          onPressed: (context) => showDialog<void>(
+            context: context,
+            builder: (_) => _ReplayDialog(call, tools!.replay!),
+          ),
+        ),
+      _HeaderAction(
+        icon: Icons.share_rounded,
+        label: 'Share lifecycle',
+        tonal: true,
+        onPressed: (context) => _shareLifecycle(context, call),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
-    final response = call.response;
-    final duration = call.duration;
-    final status = response?.statusCode.toString() ?? call.state.name;
-
-    final statusColor = _statusColor(response?.statusCode, call.state);
-    final tools = context.dependOnInheritedWidgetOfExactType<_InspectorTools>();
+    final scheme = Theme.of(context).colorScheme;
+    final actions = _actions(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        border: Border(
-          bottom:
-              BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
-        ),
+        color: scheme.surfaceContainerLowest,
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: collapsed
+          ? _buildCollapsed(context, actions)
+          : _buildExpanded(context, actions),
+    );
+  }
+
+  Widget _buildExpanded(BuildContext context, List<_HeaderAction> actions) {
+    final theme = Theme.of(context);
+    final duration = call.duration;
+    return Padding(
+      key: const ValueKey('vigil-detail-header-expanded'),
+      padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ..._statusBadges(),
+              const Spacer(),
+              if (duration != null) _durationText(context, duration),
+              IconButton(
+                tooltip: 'Collapse header',
+                visualDensity: VisualDensity.compact,
+                onPressed: onToggle,
+                icon: const Icon(Icons.unfold_less_rounded, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _MethodBadge(call.request.method),
-                const SizedBox(width: 8),
-                _Badge(text: status, color: statusColor),
-                const Spacer(),
-                if (duration != null)
-                  Text(
-                    _formatDuration(duration),
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: _isSlow(call)
-                          ? _warningColor(context)
-                          : Theme.of(context).colorScheme.onSurface,
-                      fontWeight: FontWeight.w800,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Text(
-              _pathOnly(call.request.uri),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                Text(
+                  _pathOnly(call.request.uri),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              call.request.uri.host.isEmpty
-                  ? 'Local request'
-                  : call.request.uri.host,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => _copyWithFeedback(
-                    context,
-                    call.request.uri.toString(),
-                    'URL copied',
-                  ),
-                  icon: const Icon(Icons.link_rounded, size: 18),
-                  label: const Text('Copy URL'),
                 ),
-                OutlinedButton.icon(
-                  onPressed: () => _copyWithFeedback(
-                    context,
-                    vigil.toCurl(call),
-                    'cURL copied',
-                  ),
-                  icon: const Icon(Icons.terminal_rounded, size: 18),
-                  label: const Text('Copy cURL'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => _copyWithFeedback(
-                    context,
-                    _lifecycleJson(call),
-                    'Lifecycle copied',
-                  ),
-                  icon: const Icon(Icons.copy_all_rounded, size: 18),
-                  label: const Text('Copy lifecycle'),
-                ),
-                if ((tools?.calls.length ?? 0) > 1)
-                  OutlinedButton(
-                    onPressed: () =>
-                        _chooseComparison(context, call, tools!.calls),
-                    child: const Text('Compare'),
-                  ),
-                if (tools?.replay != null &&
-                    call.state != VigilCallState.pending)
-                  OutlinedButton(
-                    onPressed: () => showDialog<void>(
-                      context: context,
-                      builder: (_) => _ReplayDialog(call, tools!.replay!),
-                    ),
-                    child: const Text('Edit and replay'),
-                  ),
-                Builder(
-                  builder: (shareContext) => FilledButton.tonalIcon(
-                    onPressed: () => _shareLifecycle(shareContext, call),
-                    icon: const Icon(Icons.share_rounded, size: 18),
-                    label: const Text('Share lifecycle'),
+                const SizedBox(height: 5),
+                Text(
+                  call.request.uri.host.isEmpty
+                      ? 'Local request'
+                      : call.request.uri.host,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                    child: Text(
-                      'Started ${_formatTime(call.startedAt)}',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontFeatures: const [FontFeature.tabularFigures()],
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    for (final action in actions)
+                      Builder(
+                        builder: (buttonContext) {
+                          final onPressed = action.onPressed == null
+                              ? null
+                              : () => action.onPressed!(buttonContext);
+                          final icon = Icon(action.icon, size: 18);
+                          final label = Text(action.label);
+                          return action.tonal
+                              ? FilledButton.tonalIcon(
+                                  onPressed: onPressed,
+                                  icon: icon,
+                                  label: label,
+                                )
+                              : OutlinedButton.icon(
+                                  onPressed: onPressed,
+                                  icon: icon,
+                                  label: label,
+                                );
+                        },
+                      ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerLow,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 7),
+                        child: Text(
+                          'Started ${_formatTime(call.startedAt)}',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCollapsed(BuildContext context, List<_HeaderAction> actions) {
+    final duration = call.duration;
+    return Padding(
+      key: const ValueKey('vigil-detail-header-collapsed'),
+      padding: const EdgeInsets.fromLTRB(16, 6, 8, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              ..._statusBadges(),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _pathOnly(call.request.uri),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              if (duration != null) ...[
+                const SizedBox(width: 8),
+                _durationText(context, duration),
+              ],
+              IconButton(
+                tooltip: 'Expand header',
+                visualDensity: VisualDensity.compact,
+                onPressed: onToggle,
+                icon: const Icon(Icons.unfold_more_rounded, size: 20),
+              ),
+            ],
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final action in actions)
+                  Builder(
+                    builder: (buttonContext) {
+                      final onPressed = action.onPressed == null
+                          ? null
+                          : () => action.onPressed!(buttonContext);
+                      final icon = Icon(action.icon, size: 20);
+                      return action.tonal
+                          ? IconButton.filledTonal(
+                              tooltip: action.label,
+                              visualDensity: VisualDensity.compact,
+                              onPressed: onPressed,
+                              icon: icon,
+                            )
+                          : IconButton(
+                              tooltip: action.label,
+                              visualDensity: VisualDensity.compact,
+                              onPressed: onPressed,
+                              icon: icon,
+                            );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _statusBadges() {
+    final response = call.response;
+    return [
+      _MethodBadge(call.request.method),
+      const SizedBox(width: 8),
+      _Badge(
+        text: response?.statusCode.toString() ?? call.state.name,
+        color: _statusColor(response?.statusCode, call.state),
+      ),
+    ];
+  }
+
+  Widget _durationText(BuildContext context, Duration duration) {
+    final theme = Theme.of(context);
+    return Text(
+      _formatDuration(duration),
+      style: theme.textTheme.titleSmall?.copyWith(
+        color: _isSlow(call)
+            ? _warningColor(context)
+            : theme.colorScheme.onSurface,
+        fontWeight: FontWeight.w800,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
   }
@@ -1094,19 +1348,22 @@ class _RequestTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final copyOptions = _InspectorTools.copyOptionsOf(context);
     return _TabList(
       children: [
         _Section(
           title: 'Request',
-          trailing: TextButton.icon(
-            onPressed: () => _copyWithFeedback(
-              context,
-              call.request.uri.toString(),
-              'URL copied',
-            ),
-            icon: const Icon(Icons.copy_rounded, size: 18),
-            label: const Text('Copy URL'),
-          ),
+          trailing: !copyOptions.endpoint
+              ? null
+              : TextButton.icon(
+                  onPressed: () => _copyWithFeedback(
+                    context,
+                    call.request.uri.toString(),
+                    'Endpoint copied',
+                  ),
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('Copy URL'),
+                ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1124,10 +1381,12 @@ class _RequestTab extends StatelessWidget {
         _Section(title: 'Headers', child: _HeadersTable(call.request.headers)),
         _Section(
           title: 'Body',
-          trailing: _CopyBodyButton(
-            body: call.request.body,
-            feedback: 'Request body copied',
-          ),
+          trailing: !copyOptions.requestContent
+              ? null
+              : _CopyBodyButton(
+                  body: call.request.body,
+                  feedback: 'Request content copied',
+                ),
           child: _BodyView(call.request.body),
         ),
       ],
@@ -1143,6 +1402,7 @@ class _ResponseTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final response = call.response;
+    final copyOptions = _InspectorTools.copyOptionsOf(context);
     if (response == null) {
       return const Center(
         child: Padding(
@@ -1178,10 +1438,12 @@ class _ResponseTab extends StatelessWidget {
         ),
         _Section(
           title: 'Body',
-          trailing: _CopyBodyButton(
-            body: response.body,
-            feedback: 'Response body copied',
-          ),
+          trailing: !copyOptions.responseContent
+              ? null
+              : _CopyBodyButton(
+                  body: response.body,
+                  feedback: 'Response content copied',
+                ),
           child: _BodyView(response.body),
         ),
       ],
@@ -1507,10 +1769,11 @@ class _CopyBodyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = _copyableBody(body);
     return TextButton.icon(
-      onPressed: body.isDisplayable && body.text != null
-          ? () => _copyWithFeedback(context, body.text ?? '', feedback)
-          : null,
+      onPressed: content == null
+          ? null
+          : () => _copyWithFeedback(context, content, feedback),
       icon: const Icon(Icons.copy_rounded, size: 18),
       label: const Text('Copy body'),
     );
@@ -1895,15 +2158,61 @@ String _formatTime(DateTime value) {
   return '$hour:$minute:$second';
 }
 
+/// Returns [body] as readable text, pretty-printing JSON with two-space
+/// indentation. Text bodies that contain JSON are formatted too.
 String _prettyBody(VigilBodySummary body) {
   final text = body.text ?? '';
-  if (body.kind != VigilBodyKind.json || text.isEmpty) return text;
+  if (text.isEmpty) return text;
+  final trimmed = text.trimLeft();
+  final looksLikeJson = body.kind == VigilBodyKind.json ||
+      trimmed.startsWith('{') ||
+      trimmed.startsWith('[');
+  if (!looksLikeJson) return text;
 
   try {
-    return const JsonEncoder.withIndent('  ').convert(jsonDecode(text));
+    return _prettyJson(jsonDecode(text));
   } catch (_) {
     return text;
   }
+}
+
+String _prettyJson(Object? value) =>
+    const JsonEncoder.withIndent('  ').convert(value);
+
+/// The formatted text copied for [body], or `null` when the body has no
+/// displayable content to copy.
+String? _copyableBody(VigilBodySummary? body) {
+  if (body == null || !body.isDisplayable || body.text == null) return null;
+  return _prettyBody(body);
+}
+
+/// Describes [body] for the combined copy, including bodies with no text.
+String _bodyForCombinedCopy(VigilBodySummary body) {
+  return _copyableBody(body) ??
+      switch (body.kind) {
+        VigilBodyKind.empty => '(empty body)',
+        VigilBodyKind.binary => '(binary body, ${body.byteLength} bytes)',
+        VigilBodyKind.oversized => '(body too large, ${body.byteLength} bytes)',
+        _ => '(body not captured)',
+      };
+}
+
+/// The endpoint, request content, and response content as one plain-text
+/// block, limited to the parts enabled in [options].
+String _combinedCopy(VigilHttpCall call, VigilCopyOptions options) {
+  final response = call.response;
+  final sections = <String>[
+    if (options.endpoint)
+      'Endpoint\n${call.request.method.toUpperCase()} ${call.request.uri}',
+    if (options.requestContent)
+      'Request\n${_bodyForCombinedCopy(call.request.body)}',
+    if (options.responseContent)
+      response == null
+          ? 'Response\n${call.error == null ? '(no response captured)' : '(no response: ${call.error!.message})'}'
+          : 'Response (${'${response.statusCode} ${response.statusMessage ?? ''}'.trim()})\n'
+              '${_bodyForCombinedCopy(response.body)}',
+  ];
+  return sections.join('\n\n');
 }
 
 Future<void> _shareLifecycle(
@@ -1939,8 +2248,7 @@ Future<void> _shareLifecycle(
   }
 }
 
-String _lifecycleJson(VigilHttpCall call) =>
-    const JsonEncoder.withIndent('  ').convert({
+String _lifecycleJson(VigilHttpCall call) => _prettyJson({
       'format': 'vigil-request-lifecycle',
       'version': 1,
       ...VigilCallCodec.callToJson(call),
