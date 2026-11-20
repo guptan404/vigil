@@ -52,9 +52,13 @@ class _DebugSession {
 }
 
 class _SessionsPage extends StatefulWidget {
-  const _SessionsPage({required this.vigil});
+  const _SessionsPage({
+    required this.vigil,
+    this.copyOptions = const VigilCopyOptions(),
+  });
 
   final Vigil vigil;
+  final VigilCopyOptions copyOptions;
 
   @override
   State<_SessionsPage> createState() => _SessionsPageState();
@@ -155,7 +159,8 @@ class _SessionsPageState extends State<_SessionsPage> {
                         '${session.calls.length} requests · ${session.createdAt.toLocal().toString().split('.').first}'),
                     onTap: () =>
                         Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => _SessionDetailPage(session, widget.vigil),
+                      builder: (_) => _SessionDetailPage(
+                          session, widget.vigil, widget.copyOptions),
                     )),
                     trailing: IconButton(
                       tooltip: 'Delete session',
@@ -281,10 +286,11 @@ class _SessionNameDialogState extends State<_SessionNameDialog> {
 }
 
 class _SessionDetailPage extends StatelessWidget {
-  const _SessionDetailPage(this.session, this.vigil);
+  const _SessionDetailPage(this.session, this.vigil, this.copyOptions);
 
   final _DebugSession session;
   final Vigil vigil;
+  final VigilCopyOptions copyOptions;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -294,7 +300,7 @@ class _SessionDetailPage extends StatelessWidget {
             IconButton(
               tooltip: 'Copy session JSON',
               onPressed: () => _copyWithFeedback(
-                  context, jsonEncode(session.toJson()), 'Session copied'),
+                  context, _prettyJson(session.toJson()), 'Session copied'),
               icon: const Icon(Icons.copy),
             ),
           ],
@@ -309,6 +315,7 @@ class _SessionDetailPage extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
                   builder: (_) => _InspectorTools(
                     savedCalls: session.calls,
+                    copyOptions: copyOptions,
                     child: _CallDetailPage(call: call, vigil: vigil),
                   ),
                 )),

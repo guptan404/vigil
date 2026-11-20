@@ -69,3 +69,26 @@ copyable JSON paths. **Compare** in request details shows changes between two
 captures. **Inspector tools → Debug sessions** saves named captures locally,
 with notes and clipboard import/export. Pass `replay` or `mocks` to the overlay
 or inspector to enable the corresponding development tools.
+
+The request list shows when each call was triggered. In request details,
+**Copy endpoint**, **Copy request**, and **Copy response** copy the URL and the
+request or response content separately, and **Copy all** copies all three as
+one readable block. JSON is pretty-printed with two-space
+indentation so it stays readable when pasted into notes or an editor. Scrolling
+a details tab collapses the header to icon-only actions. Use the expand button
+to restore it. Pass `copyOptions` to the overlay or inspector to choose which
+copy actions appear:
+
+```dart
+VigilOverlay(
+  copyOptions: const VigilCopyOptions(
+    endpoint: true,
+    requestContent: true,
+    responseContent: false,
+    all: true, // "Copy all" includes only the parts enabled above
+  ),
+  child: child ?? const SizedBox.shrink(),
+);
+```
+
+Use `VigilCopyOptions.none()` to hide all of these copy actions.
