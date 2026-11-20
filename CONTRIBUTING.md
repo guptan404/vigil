@@ -4,12 +4,11 @@ Thanks for helping improve Vigil.
 
 ## Development setup
 
-Install Dart 3.9 or newer, Flutter 3.27 or newer, and Node.js 22.12 or newer.
-Then bootstrap both workspaces:
+Install a Flutter SDK containing Dart 3.9+, and Node.js 22.12+ within 22.x or
+Node.js 24+. Then resolve both workspaces:
 
 ```sh
 dart pub get
-dart run melos bootstrap
 npm ci
 ```
 
@@ -18,11 +17,12 @@ npm ci
 Run the same checks used for release preparation:
 
 ```sh
-dart run melos run format
-dart run melos run analyze
-dart run melos run test
-npm run check
+./tool/release_check.sh
 ```
+
+This runs formatting, analysis, all Dart/Flutter and Node tests, protocol
+integration, documentation generation, and package dry runs. It uses Pub's
+workspace resolution directly and does not require a global Melos installation.
 
 Add tests for behavior changes and update the relevant package changelog when a
 consumer-visible API or behavior changes. Never commit real request payloads,

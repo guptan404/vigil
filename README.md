@@ -371,16 +371,14 @@ support Node.js 18+.
 
 ```sh
 dart pub get
-dart run melos bootstrap
-dart run melos run analyze
-dart run melos run test
 npm ci
-npm run check
-npm run test:integration
+./tool/release_check.sh
 ```
 
-The integration command starts a local Express server and checks real Dio
-requests, response diagnostics, and ingest uploads against it.
+The release check runs formatting, analysis, all Dart/Flutter and Node tests,
+protocol integration, documentation generation, and package dry runs without
+requiring a global Melos installation. The integration tests start a local
+Express server and check real Dio requests, diagnostics, and ingest uploads.
 
 Runnable examples live in [`example/flutter_app`](example/flutter_app) and
 [`example/node_server`](example/node_server).
