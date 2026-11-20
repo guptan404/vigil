@@ -1,5 +1,14 @@
 # @vigiljs/express
 
+For complete feature-branch setup, see the
+[Express backend guide](../../../docs/backend-setup.md),
+[four-key reference](../../../docs/README.md#the-four-keys),
+[Flutter integration](../../../docs/flutter-setup.md), and
+[workflow/troubleshooting guide](../../../docs/debugging-workflows.md). These
+cover device sessions, server mocks, real code failure points, and deployment.
+The published `0.1.2` package does not include all of those APIs; use the Git
+installation in the backend guide until the feature release is published.
+
 Express middleware for correlating Vigil client calls, emitting total and
 custom `Server-Timing` metrics, returning gated error diagnostics, and receiving
 optional client capture batches.
@@ -16,14 +25,16 @@ by `vigil`, uploads captured calls to this package's ingest handler.
 
 1. The Flutter interceptor sends `traceparent` with the request. This
    middleware returns that trace and `Server-Timing` metrics with the response.
-2. For an error response, a matching development `Vigil-Key` enables a
-   `Vigil-Debug` header. The Flutter Debug tab can show the backend error
+2. For a response with an error or request logs, a matching development
+   `Vigil-Key` enables a `Vigil-Debug` header. The Flutter Debug tab can show the backend error
    message, stack trace, and request context alongside the client failure.
 3. Optional ingest uses a separate `Vigil-Ingest-Key` and an HTTP JSON batch.
    It is independent of the response diagnostics path.
 
-`Vigil-Debug` contains diagnostics for one response. It does not stream or
-retrieve arbitrary application logs.
+`Vigil-Debug` contains diagnostics for one response. To attach selected
+request logs, call `req.vigil.log("info", "Loaded account", { accountId })`
+before sending response headers. Logs are limited in number and size, share
+the request trace ID, and appear on successful and failed responses.
 
 ## Installation
 
@@ -110,6 +121,187 @@ In Flutter, configure `VigilBackendConnection` from
 [`vigil_backend`](https://pub.dev/packages/vigil_backend) with this route as
 its `endpoint` and the same ingest key. Upload includes completed and failed
 client call summaries; it does not cause this middleware to collect server logs.
+
+## Desktop inspector
+
+Mount `vigilInspectorRouter({ sink, readKey })` at a development route such as
+`/vigil/inspector`. Use the same memory sink as ingest and a separate read key.
+Open the route in a desktop browser and enter the read key to inspect recent
+uploads. The initial view lists frontend sessions by ID, device type, app, and request
+counts. Select one to monitor its requests. The Flutter SDK automatically shares
+the same ID in capture batches and in the `Vigil-Session-Id` request header.
+
+## Code-level failure points
+
+Register the real error type for an operation, then call
+`req.vigil.failPoint(name)` inside that operation. When a matching rule is
+enabled, the call throws that error in the application's call stack. The
+route's catch block or error middleware creates the response.
+
+```ts
+class UserStoreUnavailableError extends Error {}
+
+const simulation = new VigilFailureSimulation({
+  debugKey: process.env.VIGIL_DEBUG_KEY!,
+  controlKey: process.env.VIGIL_SIMULATION_KEY!,
+  allowedPaths: ["/users"],
+  failurePoints: {
+    "users.lookup": () => new UserStoreUnavailableError("Database unavailable"),
+  },
+});
+app.use(vigilMiddleware({
+  debugKey: process.env.VIGIL_DEBUG_KEY,
+  simulation,
+}));
+
+app.get("/users", async (req, res, next) => {
+  try {
+    req.vigil.failPoint("users.lookup");
+    const users = await loadUsers();
+    res.json(users);
+  } catch (error) {
+    if (error instanceof UserStoreUnavailableError) {
+      res.status(503).json({ code: "USERS_UNAVAILABLE", retryable: true });
+      return;
+    }
+    next(error);
+  }
+});
+```
+
+Pass the same simulation to `vigilInspectorRouter`. Under **Express failure
+simulation**, choose **users.lookup** as the failure location and enable the
+rule. Set a request count of 1 for a one-shot failure. The form uses the
+registered error factory, and the route determines the status and body.
+A point is consumed only when execution reaches it. Registering several
+points lets you exercise different branches within the same endpoint.
+Unknown or unarmed points are no-ops, as are calls when simulation is disabled
+or the request lacks the matching development key.
+
+For direct configuration, use
+`simulation.put({ method: "GET", path: "/users", failurePoint: "users.lookup", effect: "exception", times: 1 })`.
+Code-point rules accept the operation name and request count. Status, JSON
+body, and delay overrides are rejected. The point throws synchronously and
+can be used inside an async function, a transaction, or a try/finally block.
+
+## Server failure simulation
+
+Create a development controller with the exact endpoints you want to exercise.
+Mount its middleware after Vigil instrumentation and before application routes.
+
+```ts
+import {
+  VigilFailureSimulation,
+  vigilInspectorRouter,
+  vigilMiddleware,
+} from "@vigiljs/express";
+
+const simulation = new VigilFailureSimulation({
+  debugKey: process.env.VIGIL_DEBUG_KEY!,
+  controlKey: process.env.VIGIL_SIMULATION_KEY!,
+  allowedPaths: ["/orders", "/checkout"],
+});
+app.use("/vigil/inspector", vigilInspectorRouter({
+  sink,
+  readKey: process.env.VIGIL_INSPECTOR_KEY!,
+  simulation,
+}));
+app.use(vigilMiddleware({ debugKey: process.env.VIGIL_DEBUG_KEY }));
+app.use(simulation.middleware());
+// Mount your routes here, then vigilErrorHandler and your app's error handler.
+```
+
+Connect to the desktop inspector with its read key, select a frontend session,
+and expand **Response controls**, and enter the separate simulation control key. Choose a method,
+exact path, and failure location, then enable the rule. Choose **Before route**
+to configure the HTTP and transport effects below. Rules apply to requests carrying
+the matching development `Vigil-Key`. The example Flutter interceptor already
+sends that header. Remove any matching Flutter mock rule so the request
+reaches Express.
+
+- **Mock response** sends custom JSON with a status from 200 to 599, without calling the route.
+- **HTTP error response** sends a real 4xx/5xx response with a custom JSON body.
+- **Backend exception** passes an Error to the application's Express error
+  handlers so their normal response formatting and diagnostics run.
+- **Delay and forward** waits before entering the application's route.
+- **Timeout** holds the connection open for the configured delay, then closes it.
+  Configure a shorter client receive timeout to observe a client timeout.
+- **Disconnect** closes the actual HTTP connection.
+
+Rules support a request count, including one-shot failures for retry tests.
+Omitting the count keeps a rule active until it is removed or the server
+restarts. Matching ignores query parameters and uses the exact `req.path`
+seen by the middleware. A replacement rule for the same method/path takes
+effect for subsequent requests. Requests already delayed keep their original
+rule. Rules and delays are bounded, and simulation defaults to disabled when
+`NODE_ENV=production`.
+
+You can also configure a rule directly:
+
+```ts
+simulation.put({
+  method: "POST",
+  path: "/checkout",
+  effect: "httpError",
+  statusCode: 503,
+  body: { error: "Service temporarily unavailable" },
+  times: 1,
+});
+```
+
+The desktop controls use `GET /sessions` to list devices and
+`GET /captures?sessionId=...` to monitor the selected session. Reading captures
+without a session ID returns an empty list. After connecting with the read key,
+paste a frontend ID into **Session ID** and choose **Connect to session** to
+monitor it directly. The desktop keeps waiting for that ID when no captures
+exist yet, then shows requests automatically when they arrive.
+Use `GET /simulation?sessionId=...` with `Vigil-Read-Key` to inspect rules,
+`POST /simulation` with `Vigil-Control-Key` and a `sessionId` in the rule body
+to create or replace a rule, and `DELETE /simulation/:id?sessionId=...` or
+`DELETE /simulation?sessionId=...` to remove rules for that session. These
+paths are relative to the inspector mount. Keep the control key on the server
+and in your development browser.
+
+## Session-scoped rules
+
+Add `sessionId` to a rule to target a frontend session:
+
+```ts
+simulation.put({
+  sessionId: "frontend-session-id",
+  method: "GET",
+  path: "/orders",
+  effect: "httpError",
+  statusCode: 503,
+  times: 1,
+});
+```
+
+The middleware matches this against the request's `Vigil-Session-Id` header.
+Other devices do not consume its request count. Rules for the same method/path
+on different sessions are independent. Named code failure points use the same
+matching behavior. `req.vigil.sessionId` exposes the validated ID to app code.
+Allow `Vigil-Session-Id` and `Vigil-Device-Type` in cross-origin request headers.
+
+For a session-based development inspector, set `allowCapturedPaths: true` to
+offer paths captured by the selected session. Those paths are validated against
+that session's retained uploads when a rule is created. Static `allowedPaths`
+remain available, and `/vigil` endpoints cannot be simulated.
+
+`requireDebugKey: false` is an explicit option for session-only controls. Every
+rule must then contain a valid session ID; requests with a missing or different
+ID are unaffected. Rule creation still requires the separate server control
+key, and server diagnostics retain their debug-key gate. The default remains
+`requireDebugKey: true`.
+
+The desktop's **Mock response** and **Fail request** actions prefill the selected
+request's method and path with a one-shot count. A failure passes an exception
+to the app's error handler; it needs no manually supplied response body.
+
+Pass `branding: { name: 'Your app', logoSvg: svgSource }` to
+`vigilInspectorRouter` to display the app's logo and name. The web inspector uses
+neutral surfaces and independent request/detail scrolling; the Flutter inspector
+inherits its host app's theme.
 
 ## Browser clients
 

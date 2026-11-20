@@ -10,20 +10,37 @@ and the [Express package on npm](https://www.npmjs.com/package/@vigiljs/express)
 on a Node backend. Either side can be used alone; together they connect a
 captured client call to server timing and error details through the same trace.
 
+## Setup guides
+
+The upcoming feature release includes JSON exploration, advanced filters, saved
+debug sessions, comparison, replay, local/server mocks, code failure points,
+request-linked logs, and device-scoped desktop monitoring. These features are
+on `feature/debugging-workflows`; published `0.1.2` packages do not include all
+of them.
+
+Start with the [setup and key reference](docs/README.md), then follow the
+[Express backend guide](docs/backend-setup.md),
+[Flutter frontend guide](docs/flutter-setup.md), and
+[debugging workflows](docs/debugging-workflows.md). The guides explain all four
+keys, deployment/SSM wiring, session connection, and troubleshooting.
+
 ## What you can do
 
 - Open the in-app inspector by shaking the device, using a floating button, or
   presenting it from your own debug menu. Search calls and inspect the request,
-  response, timing, and Debug tabs.
+  response, timing, and Debug tabs. Combine host, method, status, and duration
+  filters, search expandable JSON fields, and copy their JSON paths.
+- Compare two captured calls from the details pane. Save a named capture with
+  notes under **Inspector tools → Debug sessions**. Saved sessions survive app
+  restarts and can be copied as JSON and imported from the clipboard.
 - Copy a cURL command to help a backend teammate replay a request after
   replacing redacted credentials. Copy or share lifecycle JSON containing the
   request, response, timing, trace, and failure details.
 - See client errors even when there is no server response. With a matching
   development key, the backend can also return its error message, stack trace,
-  and request context in the Debug tab. This is request diagnostics, not a
-  general server log stream.
+  request context, and explicitly recorded request logs in the Debug tab.
 - Optionally upload completed and failed call summaries in batches to an
-  Express ingest endpoint for development or test inspection.
+  Express ingest endpoint and inspect it in a desktop browser.
 
 > Vigil is currently a `0.1.x` development release. Enable it only in trusted
 > development or test environments until you have reviewed the masking,
@@ -41,9 +58,31 @@ captured client call to server timing and error details through the same trace.
 | [`@vigiljs/core`](https://www.npmjs.com/package/@vigiljs/core) | npm | Node protocol, trace, timing, masking, and debug helpers |
 | [`@vigiljs/express`](https://www.npmjs.com/package/@vigiljs/express) | npm | Express middleware, error diagnostics, and ingest handler |
 
+## Install the feature branch
+
+For Flutter, use the Git repository URL, `ref: feature/debugging-workflows`,
+and `path: dart/vigil` for the `vigil` dependency. Override `vigil_core`,
+`vigil_dio`, `vigil_ui`, and `vigil_backend` with the same URL/ref and each
+package's path so every Vigil package comes from that branch.
+
+For Node, the repository root provides the Express package entry point:
+
+```json
+{
+  "dependencies": {
+    "@vigiljs/express": "git+https://github.com/guptan404/vigil.git#feature/debugging-workflows"
+  }
+}
+```
+
+Git installation builds and includes both Node packages from the resolved
+revision. Commit the application's lockfile to keep that revision reproducible.
+
 ## Flutter quick start
 
-Add the umbrella package and Dio:
+For basic capture using the published release, add the umbrella package and
+Dio. For the new debugging tools, use the complete
+[Git installation and app example](docs/flutter-setup.md) instead:
 
 ```sh
 flutter pub add vigil dio
@@ -93,8 +132,76 @@ an explicit launcher, or render `VigilInspector` from your own debug menu.
 In request details, use **Copy cURL** to send a replayable command to a
 backend teammate. **Copy lifecycle** and **Share lifecycle** include the
 captured request, response, timings, trace, and error as JSON. Review that
-content before sharing: configured header and JSON body fields are masked,
-but URL paths and query parameters can still contain sensitive values.
+content before sharing. Vigil masks configured headers, JSON fields, and query
+parameters. URL paths and unconfigured fields can contain sensitive values.
+Saved sessions use local app preferences.
+
+## Local web preview
+
+Run `npm run preview` from the repository root. It builds the example in debug
+mode and serves the Flutter app and Express API together at
+[http://127.0.0.1:4010](http://127.0.0.1:4010). Open
+[the desktop inspector](http://127.0.0.1:4010/vigil/inspector) with the local demo
+read key `dev-vigil-read`. Keep the command running while using the preview.
+Set `PORT` to use a different local port.
+
+## Replay and simulation
+
+In development builds, share a mock controller between the Dio interceptor
+and the inspector. Pass a replay callback that uses your development client.
+
+```dart
+const origin = 'https://dev-api.example.com';
+final mocks = VigilMockController(allowedOrigins: {origin});
+final dio = Dio(BaseOptions(baseUrl: origin))
+  ..interceptors.add(VigilDioInterceptor(mocks: mocks));
+final replay = VigilDioReplay(dio, allowedOrigins: {origin});
+
+final overlay = VigilOverlay(
+  enabled: kDebugMode,
+  showFloatingButton: true,
+  replay: replay.send,
+  mocks: mocks,
+  child: const MyApp(),
+);
+```
+
+Open **Edit and replay** from a completed or failed request to edit its
+method, same-origin URL (including query parameters), additional headers, and
+JSON body. Use your app's development client to supply authentication.
+The editor requires confirmation for methods that can change data. The Dio
+helper requests that redirects be disabled. On Flutter Web, browser redirects
+are controlled by the browser.
+
+Open **Inspector tools → Mock responses** to add an in-memory rule for a
+method and exact path. Rules can return a status and JSON body, simulate a
+timeout or connection failure, or delay and forward the original request.
+
+### Express-side failure simulation
+
+The desktop inspector can enable named failure points inside Express
+application code. In the example, open `/vigil/inspector`, connect with
+`dev-vigil-read`, select the frontend device session, expand **Response controls**, and enter
+`dev-vigil-control`. Choose `GET /ok`, failure location **users.lookup**,
+and request count 1, then click **Enable rule**. A selected request also has **Mock response**
+and **Fail request** shortcuts that fill its method and path automatically.
+
+The next Flutter `/ok` request reaches the route and throws
+`UserStoreUnavailableError` inside its user lookup operation. The route's
+own catch block sends `503` with error code `USER_STORE_UNAVAILABLE`.
+The following request succeeds. Remove matching Flutter mock rules so the
+request reaches Express.
+
+To add this to your backend, register error factories in `failurePoints`,
+pass the simulation to `vigilMiddleware`, and call
+`req.vigil.failPoint("users.lookup")` at the operation you want to exercise.
+Your application's error handling chooses the response.
+
+The **Before route** location also offers custom HTTP error responses,
+exceptions through Express error handlers, delayed routes, receive timeouts,
+and connection drops. The Flutter example uses a five-second receive timeout.
+Set `VIGIL_SIMULATION_KEY` to replace the example's control key. See the
+Express package README for integration details.
 
 ## Express integration
 
@@ -142,8 +249,9 @@ With a matching `Vigil-Key`, direct 4xx/5xx responses include a status and
 trace diagnostic. Errors passed through `vigilErrorHandler` also include the
 server error and stack. The Debug tab shows captured client failure details
 even when a network failure prevents any server response.
-Vigil does not retrieve arbitrary application logs from the backend; the
-`Vigil-Debug` header carries diagnostics for that response only.
+Use `req.vigil.log("info", "Loaded report", { reportId })` to attach a log
+entry to that request. Logs recorded before response headers are sent appear in
+the Debug tab on successful and failed responses when the debug key matches.
 
 For Flutter Web, expose `Server-Timing`, `traceparent`, and `Vigil-Debug` in
 your CORS configuration or browsers will hide them from Dio.
@@ -178,6 +286,68 @@ app.post("/vigil/ingest", vigilIngestHandler({
 The built-in memory sink is intended for development and tests. Production
 retention needs a bounded, access-controlled store designed for your data.
 
+## Device sessions
+
+Vigil creates a fresh session ID when initialized. The Dio interceptor sends
+`Vigil-Session-Id` and `Vigil-Device-Type` with captured requests. The uploader
+automatically includes the same session ID, device type, and session start time
+in each batch. You can copy the ID from the Flutter inspector.
+
+Device type is detected from the runtime, such as Android, iOS, web, macOS,
+Windows, or Linux. Optionally give your development device a friendly name:
+
+```dart
+Vigil.instance.init(
+  config: VigilConfig(
+    enabled: kDebugMode,
+    session: VigilSession.create(deviceName: 'QA phone'),
+  ),
+);
+```
+
+The ID stays the same when you clear captured calls. A new initialization
+starts a new session. To supply your own ID, use `VigilSession.create(sessionId:
+yourId)` in `VigilConfig.session`. The uploader owns session fields in
+`clientInfo` so request headers and uploaded metadata stay consistent.
+
+The desktop inspector opens with a device session list. Each card shows its
+device, ID, app, last activity, and request/failure counts. Select a session to
+monitor its captured requests and configure failures for that session.
+You can also paste an ID copied from Flutter Vigil into **Session ID** and
+choose **Connect to session** after connecting with your inspector read key.
+The desktop waits for that session's first upload and displays new requests
+automatically; the session ID does not replace the read key.
+Rules created in the desktop inspector apply only to requests carrying that
+session's ID. Another device calling the same endpoint is unaffected.
+
+Enable `includePendingCalls: true` in `VigilBackendConfig` to upload request
+starts as well as completions. The desktop updates each request's lifecycle
+without counting it twice. Sessions and captures follow the memory sink's
+retention limits.
+
+For cross-origin Flutter Web requests, allow `Vigil-Session-Id` and
+`Vigil-Device-Type` in your server's CORS request headers.
+
+## Desktop browser inspector
+
+Mount the router with the same sink used by the ingest handler and a separate
+read key kept on the server:
+
+```ts
+import { vigilInspectorRouter } from "@vigiljs/express";
+
+app.use("/vigil/inspector", vigilInspectorRouter({
+  sink,
+  readKey: process.env.VIGIL_INSPECTOR_KEY!,
+}));
+```
+
+Open `/vigil/inspector` on that server, enter the read key, and make a request
+from the app. Choose a device session to see its requests, then search by URL,
+method, status, or trace ID. **All sessions** returns to the device list.
+The example serves the inspector at `http://localhost:4010/vigil/inspector`
+with the local demo read key `dev-vigil-read`.
+
 ## Security model
 
 - Request and response bodies can contain personal or secret data. Review and
@@ -186,27 +356,29 @@ retention needs a bounded, access-controlled store designed for your data.
   Treat ingest/debug keys as development gates, not as durable authentication.
 - Use HTTPS outside localhost, restrict CORS, rate-limit ingest, and disable
   diagnostics in production by default.
-- `Vigil-Debug` is emitted only for errors and only when `Vigil-Key` matches the
-  backend `debugKey`.
+- `Vigil-Debug` carries errors or explicit request logs when `Vigil-Key` matches
+  the backend `debugKey`.
+- Response controls use a separate server-only control key. By default rules
+  also require the request's debug key; `requireDebugKey: false` restricts all
+  rules to an explicit device session and allows session-based test builds.
 - The ingest endpoint accepts `POST` requests; it is not a WebSocket endpoint.
 
 ## Workspace development
 
-Prerequisites: Dart 3.9+, Flutter 3.27+, and Node.js 22.12+ for workspace
-development. Published Node libraries support Node.js 18+.
+Prerequisites: a Flutter SDK containing Dart 3.9+ and Node.js 22.12+
+within 22.x, or Node.js 24+, for workspace development. Published Node libraries
+support Node.js 18+.
 
 ```sh
 dart pub get
-dart run melos bootstrap
-dart run melos run analyze
-dart run melos run test
 npm ci
-npm run check
-npm run test:integration
+./tool/release_check.sh
 ```
 
-The integration command starts a local Express server and checks real Dio
-requests, response diagnostics, and ingest uploads against it.
+The release check runs formatting, analysis, all Dart/Flutter and Node tests,
+protocol integration, documentation generation, and package dry runs without
+requiring a global Melos installation. The integration tests start a local
+Express server and check real Dio requests, diagnostics, and ingest uploads.
 
 Runnable examples live in [`example/flutter_app`](example/flutter_app) and
 [`example/node_server`](example/node_server).

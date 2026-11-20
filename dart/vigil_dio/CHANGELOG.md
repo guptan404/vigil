@@ -1,3 +1,8 @@
+## Unreleased
+
+- Propagated device-session headers consistently with captured requests.
+- Added allowed-origin edit/replay transport and local response, delay, timeout, and connection-error mocks.
+
 ## 0.1.2
 
 - Capture masked multipart fields and file metadata without consuming upload streams.

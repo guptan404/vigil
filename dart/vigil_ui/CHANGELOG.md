@@ -1,3 +1,8 @@
+## Unreleased
+
+- Added expandable JSON search and JSON-path copying, host/method/status/duration filters, saved sessions with notes and import/export, and request/response comparison.
+- Added edit/replay and local mock editors, session-ID copying, and refined Vigil branding.
+
 ## 0.1.2
 
 - Update the capture dependency and document cURL and lifecycle sharing.

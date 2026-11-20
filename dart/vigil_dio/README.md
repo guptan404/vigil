@@ -1,5 +1,10 @@
 # vigil_dio
 
+For a complete app with device sessions, replay, and a shared mock controller,
+see the [Flutter setup guide](../../docs/flutter-setup.md) and
+[debugging workflows](../../docs/debugging-workflows.md). Install all Vigil
+packages from the same Git ref for these new APIs; `0.1.2` lacks some features.
+
 A Dio interceptor that records requests, responses, and failures in Vigil. It
 adds W3C `traceparent`, parses backend `Server-Timing`, and decodes gated
 `Vigil-Debug` error diagnostics.
@@ -44,3 +49,8 @@ as a development gate and keep backend diagnostics disabled in production.
 
 For Flutter Web, expose `Server-Timing`, `traceparent`, and `Vigil-Debug` through
 your backend CORS configuration.
+
+Enabled capture also adds `Vigil-Session-Id` and `Vigil-Device-Type`.
+These identify the current Vigil app run and match the uploader's device
+session metadata. Session-scoped Express rules match this header. Allow both
+headers in CORS for Flutter Web.

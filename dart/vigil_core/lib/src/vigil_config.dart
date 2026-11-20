@@ -1,3 +1,5 @@
+import 'vigil_session.dart';
+
 /// Controls capture, retention, masking, and gated diagnostics.
 class VigilConfig {
   /// Creates a Vigil configuration.
@@ -7,11 +9,22 @@ class VigilConfig {
     this.maxBodyBytes = 64 * 1024,
     this.captureBody = true,
     this.debugKey,
+    this.session,
     this.maskHeaders = const {
       'authorization',
       'cookie',
       'set-cookie',
       'vigil-key',
+    },
+    this.maskQueryParameters = const {
+      'password',
+      'token',
+      'access_token',
+      'refresh_token',
+      'secret',
+      'api_key',
+      'apikey',
+      'signature',
     },
     this.maskBodyFields = const {
       'password',
@@ -40,9 +53,15 @@ class VigilConfig {
   /// Optional value sent as `Vigil-Key` to request gated backend diagnostics.
   final String? debugKey;
 
+  /// Optional session identity. A fresh platform-aware identity is created at init.
+  final VigilSession? session;
+
   /// Lowercase HTTP header names whose captured values are redacted.
   final Set<String> maskHeaders;
 
   /// Lowercase JSON field names whose captured values are redacted.
   final Set<String> maskBodyFields;
+
+  /// Lowercase query parameter names redacted before capture.
+  final Set<String> maskQueryParameters;
 }

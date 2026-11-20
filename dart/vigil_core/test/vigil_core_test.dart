@@ -4,6 +4,40 @@ import 'package:test/test.dart';
 import 'package:vigil_core/vigil_core.dart';
 
 void main() {
+  test('generates a new session at init and preserves it when clearing calls',
+      () {
+    final vigil = Vigil.instance..init();
+    final first = vigil.session.id;
+    expect(vigil.session.deviceType, isNotEmpty);
+    vigil.clear();
+    expect(vigil.session.id, first);
+    vigil.init();
+    expect(vigil.session.id, isNot(first));
+    expect(() => VigilSession.create(sessionId: 'invalid\r\nheader'),
+        throwsFormatException);
+  });
+
+  test('preserves session metadata in saved calls and accepts older captures',
+      () {
+    final vigil = Vigil.instance..init();
+    final started = DateTime.now();
+    final id = vigil.startCall(VigilHttpRequest(
+      method: 'GET',
+      uri: Uri.parse('https://example.com'),
+      headers: const {},
+      body: VigilBodySummary.empty,
+      timestamp: started,
+      traceContext: VigilTraceContext.generate(),
+      session: vigil.session,
+    ));
+    final json = VigilCallCodec.callToJson(vigil.calls.single);
+    expect(VigilCallCodec.callFromJson(json).request.session?.id,
+        vigil.session.id);
+    (json['request'] as Map).remove('session');
+    expect(VigilCallCodec.callFromJson(json).id, id);
+    expect(VigilCallCodec.callFromJson(json).request.session, isNull);
+  });
+
   test('generates and parses traceparent', () {
     final trace = VigilTraceContext.generate();
     final parsed = VigilTraceContext.tryParse(trace.toHeader());

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added request-linked log diagnostics and registered code failure points.
+- Added device-session capture ingestion and a keyed desktop inspector with direct session connection.
+- Added session-scoped response mocks, exceptions, delays, timeouts, and disconnects, with separate read/control keys and captured-path eligibility.
+- Refined Vigil desktop branding and independent request/detail scrolling; documented complete setup and deployment.
+
 ## 0.1.2
 
 - Use the updated debug encoder to preserve redaction and enforce size limits in response headers.

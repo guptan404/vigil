@@ -25,7 +25,7 @@ class VigilBackendConnection {
   final Vigil _vigil;
   final http.Client _client;
   final bool _ownsClient;
-  final List<VigilHttpCall> _queue = [];
+  final List<({VigilHttpCall call, VigilSession session})> _queue = [];
 
   StreamSubscription<VigilEvent>? _subscription;
   Timer? _flushTimer;
@@ -86,11 +86,15 @@ class VigilBackendConnection {
 
   Future<void> _flushBatch() async {
     try {
-      final batch = _queue.take(_config.batchSize).toList(growable: false);
+      final session = _queue.first.session;
+      final batch = _queue
+          .takeWhile((entry) => entry.session.id == session.id)
+          .take(_config.batchSize)
+          .toList(growable: false);
       final payload = VigilBackendPayload(
         sentAt: DateTime.now(),
-        calls: batch,
-        clientInfo: _config.clientInfo,
+        calls: batch.map((entry) => entry.call).toList(growable: false),
+        clientInfo: {..._config.clientInfo, ...session.toJson()},
       );
       final response = await _client
           .post(
@@ -142,7 +146,7 @@ class VigilBackendConnection {
     };
     if (!shouldUpload) return;
 
-    _queue.add(call);
+    _queue.add((call: call, session: call.request.session ?? _vigil.session));
     while (_queue.length > _config.maxQueueSize) {
       _queue.removeAt(0);
     }

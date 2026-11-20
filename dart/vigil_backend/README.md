@@ -1,5 +1,11 @@
 # vigil_backend
 
+For a complete device-session uploader setup, use the
+[Flutter guide](../../docs/flutter-setup.md). Pair it with the
+[Express ingest/inspector setup](../../docs/backend-setup.md) and
+[four-key reference](../../docs/README.md#the-four-keys). New session features
+require matching Git packages; the published `0.1.2` lacks some of these APIs.
+
 An optional uploader for sending calls captured by `vigil_core` to a backend
 ingest endpoint in bounded batches. Local capture continues even when upload is
 disabled or temporarily fails.
@@ -51,3 +57,13 @@ matching development debug key. Upload does not retrieve general server logs.
 The ingest key is sent in `Vigil-Ingest-Key`. A key embedded in a client app is
 not a secret, so combine it with development-only enablement, TLS, rate limits,
 and appropriate backend authentication when the endpoint is remotely reachable.
+
+Capture uploads automatically include the recorder's session ID, start time,
+and detected device type. These match the Dio request headers so the desktop
+inspector can monitor and mock a specific frontend session. Use
+`VigilConfig(session: VigilSession.create(deviceName: 'QA phone'))` for a
+friendly label. Supply a custom ID through `VigilConfig.session` so the upload
+metadata and API request header remain the same.
+
+Set `includePendingCalls: true` to show in-progress calls on the desktop.
+The desktop keeps the latest lifecycle for each request within a session.

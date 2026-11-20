@@ -1,5 +1,6 @@
 import 'body_summary.dart';
 import 'trace_context.dart';
+import 'vigil_session.dart';
 
 /// Request data captured at the start of an HTTP call.
 class VigilHttpRequest {
@@ -11,6 +12,7 @@ class VigilHttpRequest {
     required this.body,
     required this.timestamp,
     required this.traceContext,
+    this.session,
   });
 
   /// HTTP method.
@@ -30,4 +32,18 @@ class VigilHttpRequest {
 
   /// Trace context sent with the request.
   final VigilTraceContext traceContext;
+
+  /// Session at capture time. Absent in older captures.
+  final VigilSession? session;
+
+  /// Copies this request with a capture-session identity.
+  VigilHttpRequest withSession(VigilSession identity) => VigilHttpRequest(
+        method: method,
+        uri: uri,
+        headers: headers,
+        body: body,
+        timestamp: timestamp,
+        traceContext: traceContext,
+        session: identity,
+      );
 }

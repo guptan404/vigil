@@ -39,7 +39,7 @@ void main() {
 
     final body = jsonDecode(requests.single.body) as Map<String, Object?>;
     expect(body['version'], 1);
-    expect(body['client'], {'app': 'demo'});
+    expect(body['client'], {'app': 'demo', ...vigil.session.toJson()});
 
     final calls = body['calls'] as List<Object?>;
     final call = calls.single as Map<String, Object?>;
@@ -48,6 +48,51 @@ void main() {
         'https://api.example.com/ok');
     expect((call['response'] as Map<String, Object?>)['statusCode'], 200);
 
+    await connection.dispose(flushPending: false);
+  });
+
+  test('keeps queued calls attached to their original session after reinit',
+      () async {
+    final requests = <http.Request>[];
+    final vigil = Vigil.instance
+      ..init(
+          config: VigilConfig(
+        session:
+            VigilSession.create(sessionId: 'phone-a', deviceType: 'android'),
+      ));
+    final connection = VigilBackendConnection.connect(
+      config: VigilBackendConfig(
+        endpoint: Uri.parse('https://collector.example.com/vigil'),
+        flushInterval: Duration.zero,
+        clientInfo: const {'app': 'demo', 'sessionId': 'must-not-override'},
+      ),
+      vigil: vigil,
+      client: MockClient((request) async {
+        requests.add(request);
+        return http.Response('{}', 202);
+      }),
+    );
+    final first = vigil.startCall(_request('/first'));
+    vigil.completeCall(first, _response(200));
+    await _settleEvents();
+    vigil.init(
+        config: VigilConfig(
+      session: VigilSession.create(sessionId: 'phone-b', deviceType: 'ios'),
+    ));
+    final second = vigil.startCall(_request('/second'));
+    vigil.completeCall(second, _response(200));
+    await _settleEvents();
+
+    await connection.flush();
+    expect(connection.queuedCount, 1);
+    await connection.flush();
+    expect(connection.queuedCount, 0);
+    final firstBatch = jsonDecode(requests[0].body) as Map;
+    final secondBatch = jsonDecode(requests[1].body) as Map;
+    expect(firstBatch['client']['sessionId'], 'phone-a');
+    expect(firstBatch['client']['deviceType'], 'android');
+    expect(secondBatch['client']['sessionId'], 'phone-b');
+    expect(secondBatch['client']['deviceType'], 'ios');
     await connection.dispose(flushPending: false);
   });
 

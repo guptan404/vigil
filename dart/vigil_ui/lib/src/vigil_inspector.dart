@@ -3,12 +3,28 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vigil_core/vigil_core.dart';
+
+part 'vigil_inspector_tools.dart';
+part 'vigil_sessions.dart';
 
 /// Searchable Flutter interface for requests captured by Vigil.
 class VigilInspector extends StatefulWidget {
   /// Creates an inspector for [vigil] or [Vigil.instance].
-  const VigilInspector({super.key, this.vigil, this.onClose});
+  const VigilInspector({
+    super.key,
+    this.vigil,
+    this.onClose,
+    this.replay,
+    this.mocks,
+  });
+
+  /// Optional app-provided development transport for replay.
+  final VigilReplay? replay;
+
+  /// Optional rules shared with the app's Dio interceptor.
+  final VigilMockController? mocks;
 
   /// Recorder whose calls are displayed.
   final Vigil? vigil;
@@ -25,6 +41,7 @@ class _VigilInspectorState extends State<VigilInspector> {
   final TextEditingController _searchController = TextEditingController();
   _CallFilter _filter = _CallFilter.all;
   String _query = '';
+  _AdvancedFilters _advanced = const _AdvancedFilters();
 
   Vigil get _vigil => widget.vigil ?? Vigil.instance;
 
@@ -46,65 +63,97 @@ class _VigilInspectorState extends State<VigilInspector> {
         return Theme(
           data: _inspectorTheme(context),
           child: Builder(
-            builder: (context) => Scaffold(
-              backgroundColor: _surfaceBase(context),
-              appBar: _InspectorAppBar(
-                hasCalls: calls.isNotEmpty,
-                onClear: _vigil.clear,
-                onClose: widget.onClose,
-              ),
-              body: calls.isEmpty
-                  ? const _EmptyState()
-                  : LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isWide = constraints.maxWidth >= 840;
-                        final list = _CallListView(
-                          calls: calls,
-                          visibleCalls: visibleCalls,
-                          selectedCallId: isWide ? selectedCall?.id : null,
-                          searchController: _searchController,
-                          query: _query,
-                          filter: _filter,
-                          onQueryChanged: (value) {
-                            setState(() => _query = value.trim().toLowerCase());
-                          },
-                          onFilterChanged: (value) {
-                            setState(() => _filter = value);
-                          },
-                          onSelected: (call) {
-                            if (isWide) {
-                              setState(() => _selectedCallId = call.id);
-                              return;
-                            }
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => _CallDetailPage(
-                                  call: call,
-                                  vigil: _vigil,
+            builder: (context) => _InspectorTools(
+              vigil: _vigil,
+              replay: widget.replay,
+              child: Scaffold(
+                backgroundColor: _surfaceBase(context),
+                appBar: _InspectorAppBar(
+                  hasCalls: calls.isNotEmpty,
+                  onClear: _vigil.clear,
+                  onClose: widget.onClose,
+                  onSessions: () =>
+                      Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => _SessionsPage(vigil: _vigil),
+                  )),
+                  onMocks: widget.mocks == null
+                      ? null
+                      : () =>
+                          Navigator.of(context).push(MaterialPageRoute<void>(
+                            builder: (_) => _MocksPage(widget.mocks!),
+                          )),
+                ),
+                body: calls.isEmpty
+                    ? const _EmptyState()
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isWide = constraints.maxWidth >= 1000;
+                          final list = _CallListView(
+                            session: _vigil.session,
+                            calls: calls,
+                            visibleCalls: visibleCalls,
+                            selectedCallId: isWide ? selectedCall?.id : null,
+                            searchController: _searchController,
+                            query: _query,
+                            filter: _filter,
+                            advanced: _advanced,
+                            onAdvanced: () async {
+                              final result = await showDialog<_AdvancedFilters>(
+                                context: context,
+                                builder: (_) => _FilterDialog(_advanced, calls),
+                              );
+                              if (mounted && result != null) {
+                                setState(() => _advanced = result);
+                              }
+                            },
+                            onQueryChanged: (value) {
+                              setState(
+                                  () => _query = value.trim().toLowerCase());
+                            },
+                            onFilterChanged: (value) {
+                              setState(() => _filter = value);
+                            },
+                            onSelected: (call) {
+                              if (isWide) {
+                                setState(() => _selectedCallId = call.id);
+                                return;
+                              }
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => _InspectorTools(
+                                    vigil: _vigil,
+                                    replay: widget.replay,
+                                    child: _LiveCallDetail(
+                                        call: call, vigil: _vigil),
+                                  ),
                                 ),
+                              );
+                            },
+                          );
+
+                          if (!isWide) return list;
+
+                          return Row(
+                            children: [
+                              SizedBox(
+                                width: (constraints.maxWidth * .33)
+                                    .clamp(320.0, 400.0),
+                                child: list,
                               ),
-                            );
-                          },
-                        );
-
-                        if (!isWide) return list;
-
-                        return Row(
-                          children: [
-                            SizedBox(width: 420, child: list),
-                            const VerticalDivider(width: 1),
-                            Expanded(
-                              child: selectedCall == null
-                                  ? const _NoResultsState()
-                                  : _CallDetailPane(
-                                      call: selectedCall,
-                                      vigil: _vigil,
-                                    ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
+                              const VerticalDivider(width: 1),
+                              Expanded(
+                                child: selectedCall == null
+                                    ? const _NoResultsState()
+                                    : _CallDetailPane(
+                                        call: selectedCall,
+                                        vigil: _vigil,
+                                      ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+              ),
             ),
           ),
         );
@@ -127,7 +176,7 @@ class _VigilInspectorState extends State<VigilInspector> {
 
   List<VigilHttpCall> _filteredCalls(List<VigilHttpCall> calls) {
     return calls.where((call) {
-      if (!_filter.matches(call)) return false;
+      if (!_filter.matches(call) || !_advanced.matches(call)) return false;
       if (_query.isEmpty) return true;
 
       final responseStatus = call.response?.statusCode.toString() ?? '';
@@ -136,6 +185,7 @@ class _VigilInspectorState extends State<VigilInspector> {
         call.request.uri.toString(),
         call.request.uri.host,
         call.state.name,
+        call.request.traceContext.traceId,
         responseStatus,
         call.error?.message ?? '',
       ].join(' ').toLowerCase();
@@ -170,11 +220,15 @@ class _InspectorAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.hasCalls,
     required this.onClear,
     required this.onClose,
+    required this.onSessions,
+    required this.onMocks,
   });
 
   final bool hasCalls;
   final VoidCallback onClear;
   final VoidCallback? onClose;
+  final VoidCallback onSessions;
+  final VoidCallback? onMocks;
 
   @override
   Size get preferredSize => const Size.fromHeight(72);
@@ -187,6 +241,18 @@ class _InspectorAppBar extends StatelessWidget implements PreferredSizeWidget {
       titleSpacing: 20,
       title: Row(
         children: [
+          Container(
+            width: 36,
+            height: 36,
+            margin: const EdgeInsets.only(right: 10),
+            decoration: BoxDecoration(
+              color: scheme.primaryContainer.withValues(alpha: .5),
+              border: Border.all(color: scheme.outlineVariant),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.network_check_rounded,
+                color: scheme.primary, size: 21),
+          ),
           Flexible(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -212,41 +278,55 @@ class _InspectorAppBar extends StatelessWidget implements PreferredSizeWidget {
               ],
             ),
           ),
-          const SizedBox(width: 14),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: scheme.primaryContainer.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      color: scheme.primary,
-                      shape: BoxShape.circle,
+          if (MediaQuery.sizeOf(context).width >= 500)
+            const SizedBox(width: 14),
+          if (MediaQuery.sizeOf(context).width >= 500)
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'LIVE',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
-                        ),
-                  ),
-                ],
+                    const SizedBox(width: 6),
+                    Text(
+                      'LIVE',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
       actions: [
+        PopupMenuButton<String>(
+          tooltip: 'Inspector tools',
+          onSelected: (value) =>
+              value == 'sessions' ? onSessions() : onMocks?.call(),
+          itemBuilder: (_) => [
+            const PopupMenuItem(
+                value: 'sessions', child: Text('Debug sessions')),
+            if (onMocks != null)
+              const PopupMenuItem(
+                  value: 'mocks', child: Text('Mock responses')),
+          ],
+        ),
         IconButton(
           tooltip: 'Clear requests',
           onPressed: hasCalls ? onClear : null,
@@ -266,23 +346,29 @@ class _InspectorAppBar extends StatelessWidget implements PreferredSizeWidget {
 
 class _CallListView extends StatelessWidget {
   const _CallListView({
+    required this.session,
     required this.calls,
     required this.visibleCalls,
     required this.selectedCallId,
     required this.searchController,
     required this.query,
     required this.filter,
+    required this.advanced,
+    required this.onAdvanced,
     required this.onQueryChanged,
     required this.onFilterChanged,
     required this.onSelected,
   });
 
+  final VigilSession session;
   final List<VigilHttpCall> calls;
   final List<VigilHttpCall> visibleCalls;
   final String? selectedCallId;
   final TextEditingController searchController;
   final String query;
   final _CallFilter filter;
+  final _AdvancedFilters advanced;
+  final VoidCallback onAdvanced;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<_CallFilter> onFilterChanged;
   final ValueChanged<VigilHttpCall> onSelected;
@@ -297,27 +383,84 @@ class _CallListView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Row(children: [
+                Expanded(
+                    child: Text(
+                  '${session.deviceName ?? session.deviceType} · '
+                  '${session.id.length > 8 ? session.id.substring(0, 8) : session.id}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                )),
+                IconButton(
+                  tooltip: 'Copy session ID',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 15,
+                  onPressed: () => _copyWithFeedback(
+                      context, session.id, 'Session ID copied'),
+                  icon: const Icon(Icons.copy_rounded),
+                ),
+              ]),
               _SummaryStrip(calls: calls),
               const SizedBox(height: 14),
-              TextField(
-                controller: searchController,
-                onChanged: onQueryChanged,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: 'Search requests',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: query.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: 'Clear search',
-                          onPressed: () {
-                            searchController.clear();
-                            onQueryChanged('');
-                          },
-                          icon: const Icon(Icons.close_rounded, size: 20),
-                        ),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                      child: TextField(
+                    controller: searchController,
+                    onChanged: onQueryChanged,
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: 'Search requests',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      suffixIcon: query.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              onPressed: () {
+                                searchController.clear();
+                                onQueryChanged('');
+                              },
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                            ),
+                    ),
+                  )),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    tooltip: advanced.active
+                        ? 'Advanced filters active'
+                        : 'Advanced filters',
+                    onPressed: onAdvanced,
+                    isSelected: advanced.active,
+                    icon: const Icon(Icons.tune_rounded, size: 20),
+                  ),
+                ],
               ),
+              if (advanced.active)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (advanced.host.isNotEmpty)
+                        _InfoChip(label: 'Host', value: advanced.host),
+                      if (advanced.method.isNotEmpty)
+                        _InfoChip(label: 'Method', value: advanced.method),
+                      if (advanced.minStatus != null ||
+                          advanced.maxStatus != null)
+                        _InfoChip(
+                            label: 'Status',
+                            value:
+                                '${advanced.minStatus ?? 100}–${advanced.maxStatus ?? 599}'),
+                      if (advanced.minMs != null || advanced.maxMs != null)
+                        _InfoChip(
+                            label: 'Duration',
+                            value:
+                                '${advanced.minMs ?? 0}–${advanced.maxMs?.toString() ?? '∞'} ms'),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 12),
               SizedBox(
                 height: 36,
@@ -738,6 +881,7 @@ class _DetailHeader extends StatelessWidget {
     final status = response?.statusCode.toString() ?? call.state.name;
 
     final statusColor = _statusColor(response?.statusCode, call.state);
+    final tools = context.dependOnInheritedWidgetOfExactType<_InspectorTools>();
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
@@ -747,7 +891,7 @@ class _DetailHeader extends StatelessWidget {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -823,6 +967,21 @@ class _DetailHeader extends StatelessWidget {
                   icon: const Icon(Icons.copy_all_rounded, size: 18),
                   label: const Text('Copy lifecycle'),
                 ),
+                if ((tools?.calls.length ?? 0) > 1)
+                  OutlinedButton(
+                    onPressed: () =>
+                        _chooseComparison(context, call, tools!.calls),
+                    child: const Text('Compare'),
+                  ),
+                if (tools?.replay != null &&
+                    call.state != VigilCallState.pending)
+                  OutlinedButton(
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (_) => _ReplayDialog(call, tools!.replay!),
+                    ),
+                    child: const Text('Edit and replay'),
+                  ),
                 Builder(
                   builder: (shareContext) => FilledButton.tonalIcon(
                     onPressed: () => _shareLifecycle(shareContext, call),
@@ -1134,6 +1293,8 @@ class _ServerDebugTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final debug = call.response?.serverDebug;
+    final logs = debug?.context['logs'];
+    final contextFields = {...?debug?.context}..remove('logs');
     final response = call.response;
     final error = call.error;
     final hasFailure = error != null || (response?.statusCode ?? 0) >= 400;
@@ -1149,6 +1310,27 @@ class _ServerDebugTab extends StatelessWidget {
 
     return _TabList(
       children: [
+        if (logs is List && logs.isNotEmpty)
+          _Section(
+            title: 'Request logs',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final entry in logs.whereType<Map>())
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: SelectableText(
+                        '${entry['level'] ?? ''} · ${entry['message'] ?? ''}'),
+                    subtitle: SelectableText([
+                      if (entry['timestamp'] != null)
+                        entry['timestamp'].toString(),
+                      if (entry['fields'] != null) jsonEncode(entry['fields']),
+                    ].join('\n')),
+                  ),
+              ],
+            ),
+          ),
         if (hasFailure)
           _Section(
             title: 'Failure',
@@ -1186,12 +1368,12 @@ class _ServerDebugTab extends StatelessWidget {
           _Section(title: 'Stack', child: _CodeBlock(debug.stack ?? '-')),
           _Section(
             title: 'Context',
-            child: debug.context.isEmpty
+            child: contextFields.isEmpty
                 ? const _MutedText('No context')
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (final entry in debug.context.entries)
+                      for (final entry in contextFields.entries)
                         _KeyValueRow(entry.key, '${entry.value}'),
                     ],
                   ),
@@ -1308,7 +1490,10 @@ class _BodyView extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        _CodeBlock('$text$suffix'),
+        if (body.kind == VigilBodyKind.json && !body.truncated)
+          _JsonBody(key: ValueKey(body.text), text: body.text ?? '')
+        else
+          _CodeBlock('$text$suffix'),
       ],
     );
   }
@@ -1554,23 +1739,7 @@ Color _surfaceBase(BuildContext context) {
 
 ThemeData _inspectorTheme(BuildContext context) {
   final parent = Theme.of(context);
-  final isDark = parent.brightness == Brightness.dark;
-  final seed = isDark ? const Color(0xFF5FD39A) : const Color(0xFF138A5B);
-  final generated = ColorScheme.fromSeed(
-    seedColor: seed,
-    brightness: parent.brightness,
-  );
-  final scheme = generated.copyWith(
-    primary: seed,
-    surface: isDark ? const Color(0xFF101613) : const Color(0xFFF7F9F8),
-    surfaceContainerLowest:
-        isDark ? const Color(0xFF151D19) : const Color(0xFFFFFFFF),
-    surfaceContainerLow:
-        isDark ? const Color(0xFF19221E) : const Color(0xFFF1F4F2),
-    surfaceContainerHighest:
-        isDark ? const Color(0xFF26312C) : const Color(0xFFE9EEEB),
-    outlineVariant: isDark ? const Color(0xFF35433D) : const Color(0xFFDDE4E0),
-  );
+  final scheme = parent.colorScheme;
 
   final textTheme = parent.textTheme.apply(
     bodyColor: scheme.onSurface,
@@ -1590,6 +1759,24 @@ ThemeData _inspectorTheme(BuildContext context) {
     scaffoldBackgroundColor: scheme.surface,
     textTheme: textTheme,
     dividerColor: scheme.outlineVariant,
+    outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+      foregroundColor: scheme.onSurface,
+      side: BorderSide(color: scheme.outlineVariant),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      textStyle: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+    )),
+    filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      textStyle: textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+    )),
+    listTileTheme: ListTileThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+    ),
     appBarTheme: AppBarTheme(
       backgroundColor: scheme.surfaceContainerLowest,
       foregroundColor: scheme.onSurface,
@@ -1600,19 +1787,19 @@ ThemeData _inspectorTheme(BuildContext context) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
+      fillColor: scheme.surfaceContainerLow,
       hintStyle: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: scheme.outlineVariant),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: scheme.outlineVariant),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(color: scheme.primary, width: 1.5),
       ),
     ),
@@ -1752,54 +1939,9 @@ Future<void> _shareLifecycle(
   }
 }
 
-String _lifecycleJson(VigilHttpCall call) {
-  final request = call.request;
-  final response = call.response;
-  final error = call.error;
-
-  return const JsonEncoder.withIndent('  ').convert({
-    'format': 'vigil-request-lifecycle',
-    'version': 1,
-    'id': call.id,
-    'state': call.state.name,
-    'startedAt': call.startedAt.toUtc().toIso8601String(),
-    'completedAt': call.completedAt?.toUtc().toIso8601String(),
-    'durationMs': call.duration == null
-        ? null
-        : call.duration!.inMicroseconds / Duration.microsecondsPerMillisecond,
-    'trace': {
-      'traceparent': request.traceContext.toHeader(),
-      'traceId': request.traceContext.traceId,
-      'parentId': request.traceContext.parentId,
-      'flags': request.traceContext.flags,
-    },
-    'request': {
-      'method': request.method,
-      'url': request.uri.toString(),
-      'headers': request.headers,
-      'body': request.body.toJson(),
-      'timestamp': request.timestamp.toUtc().toIso8601String(),
-    },
-    'response': response == null
-        ? null
-        : {
-            'statusCode': response.statusCode,
-            'statusMessage': response.statusMessage,
-            'headers': response.headers,
-            'body': response.body.toJson(),
-            'timestamp': response.timestamp.toUtc().toIso8601String(),
-            'serverTimings': response.serverTimings
-                .map((timing) => timing.toJson())
-                .toList(growable: false),
-            'serverDebug': response.serverDebug?.toJson(),
-          },
-    'error': error == null
-        ? null
-        : {
-            'message': error.message,
-            'type': error.type,
-            'stackTrace': error.stackTrace?.toString(),
-            'timestamp': error.timestamp.toUtc().toIso8601String(),
-          },
-  });
-}
+String _lifecycleJson(VigilHttpCall call) =>
+    const JsonEncoder.withIndent('  ').convert({
+      'format': 'vigil-request-lifecycle',
+      'version': 1,
+      ...VigilCallCodec.callToJson(call),
+    });

@@ -16,6 +16,7 @@ pubspec_overrides.yaml
 # Node
 node_modules/
 dist/
+git-dist/
 
 # Logs
 *.log

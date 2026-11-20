@@ -21,9 +21,11 @@ dependencies:
     sdk: flutter
   sensors_plus: ^6.1.2
   share_plus: ^11.1.0
+  shared_preferences: ^2.5.3
   vigil_core: ^0.1.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  shared_preferences_platform_interface: ^2.4.0
