@@ -1,5 +1,14 @@
 # @vigiljs/express
 
+For complete feature-branch setup, see the
+[Express backend guide](../../../docs/backend-setup.md),
+[four-key reference](../../../docs/README.md#the-four-keys),
+[Flutter integration](../../../docs/flutter-setup.md), and
+[workflow/troubleshooting guide](../../../docs/debugging-workflows.md). These
+cover device sessions, server mocks, real code failure points, and deployment.
+The published `0.1.2` package does not include all of those APIs; use the Git
+installation in the backend guide until the feature release is published.
+
 Express middleware for correlating Vigil client calls, emitting total and
 custom `Server-Timing` metrics, returning gated error diagnostics, and receiving
 optional client capture batches.

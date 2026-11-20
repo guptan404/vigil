@@ -10,6 +10,20 @@ and the [Express package on npm](https://www.npmjs.com/package/@vigiljs/express)
 on a Node backend. Either side can be used alone; together they connect a
 captured client call to server timing and error details through the same trace.
 
+## Setup guides
+
+The upcoming feature release includes JSON exploration, advanced filters, saved
+debug sessions, comparison, replay, local/server mocks, code failure points,
+request-linked logs, and device-scoped desktop monitoring. These features are
+on `feature/debugging-workflows`; published `0.1.2` packages do not include all
+of them.
+
+Start with the [setup and key reference](docs/README.md), then follow the
+[Express backend guide](docs/backend-setup.md),
+[Flutter frontend guide](docs/flutter-setup.md), and
+[debugging workflows](docs/debugging-workflows.md). The guides explain all four
+keys, deployment/SSM wiring, session connection, and troubleshooting.
+
 ## What you can do
 
 - Open the in-app inspector by shaking the device, using a floating button, or
@@ -66,7 +80,9 @@ revision. Commit the application's lockfile to keep that revision reproducible.
 
 ## Flutter quick start
 
-Add the umbrella package and Dio:
+For basic capture using the published release, add the umbrella package and
+Dio. For the new debugging tools, use the complete
+[Git installation and app example](docs/flutter-setup.md) instead:
 
 ```sh
 flutter pub add vigil dio
@@ -349,8 +365,9 @@ with the local demo read key `dev-vigil-read`.
 
 ## Workspace development
 
-Prerequisites: Dart 3.9+, Flutter 3.27+, and Node.js 22.12+ for workspace
-development. Published Node libraries support Node.js 18+.
+Prerequisites: a Flutter SDK containing Dart 3.9+ and Node.js 22.12+
+within 22.x, or Node.js 24+, for workspace development. Published Node libraries
+support Node.js 18+.
 
 ```sh
 dart pub get

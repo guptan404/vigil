@@ -1,5 +1,10 @@
 # vigil_dio
 
+For a complete app with device sessions, replay, and a shared mock controller,
+see the [Flutter setup guide](../../docs/flutter-setup.md) and
+[debugging workflows](../../docs/debugging-workflows.md). Install all Vigil
+packages from the same Git ref for these new APIs; `0.1.2` lacks some features.
+
 A Dio interceptor that records requests, responses, and failures in Vigil. It
 adds W3C `traceparent`, parses backend `Server-Timing`, and decodes gated
 `Vigil-Debug` error diagnostics.

@@ -1,5 +1,10 @@
 # vigil_ui
 
+For expandable JSON, advanced filters, saved sessions, comparison, replay, and
+mock configuration, see the [workflow guide](../../docs/debugging-workflows.md)
+and [complete Flutter setup](../../docs/flutter-setup.md). These new tools
+require matching feature-branch packages rather than the published `0.1.2`.
+
 A Flutter inspector for calls captured by `vigil_core`. It provides request
 search and filters, request/response details, one-tap Copy cURL, client and
 server timing, lifecycle JSON copy/share, body copying, gated debug details,

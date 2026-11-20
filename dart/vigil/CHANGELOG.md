@@ -1,3 +1,8 @@
+## Unreleased
+
+- Bundled the new session, replay, mock, JSON exploration, filtering, comparison, and saved-session APIs.
+- Added complete frontend/backend setup and debugging workflow guides.
+
 ## 0.1.2
 
 - Updated the bundled packages with multipart capture, JSON body masking, and backend upload fixes.

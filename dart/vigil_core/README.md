@@ -1,5 +1,10 @@
 # vigil_core
 
+For device identity, masking, saved capture workflows, and matching Git
+installation, see the [Flutter setup guide](../../docs/flutter-setup.md) and
+[feature/key reference](../../docs/README.md). New feature-branch APIs are not
+all included in the published `0.1.2` packages.
+
 Core, platform-independent primitives for the Vigil network inspector. This
 package owns captured-call models, privacy masking, W3C trace context,
 `Server-Timing` parsing, debug payload parsing, and cURL export.

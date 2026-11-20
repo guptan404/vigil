@@ -1,5 +1,12 @@
 # Vigil for Flutter
 
+For the new debugging features, use the matching Git packages in the
+[complete Flutter setup guide](../../docs/flutter-setup.md). See the
+[key reference](../../docs/README.md#the-four-keys),
+[Express setup](../../docs/backend-setup.md), and
+[debugging workflows](../../docs/debugging-workflows.md). Published `0.1.2`
+packages do not contain all feature-branch APIs described there.
+
 Vigil is an in-app HTTP inspector for Flutter development. Add one Dio
 interceptor to capture requests, responses, and failures, then open a searchable
 inspector without changing your API responses. This package exports the core

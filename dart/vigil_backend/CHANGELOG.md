@@ -1,3 +1,8 @@
+## Unreleased
+
+- Uploaded canonical device-session metadata with captured calls.
+- Added optional pending-call upload for live desktop lifecycle updates.
+
 ## 0.1.2
 
 - Wait for in-flight uploads during disposal and keep the connection closed to new events during the final flush.

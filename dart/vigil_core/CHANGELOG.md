@@ -1,3 +1,7 @@
+## Unreleased
+
+- Added platform-aware device-session identity, capture JSON codecs, and replay/mock models.
+
 ## 0.1.2
 
 - Redact configured fields in JSON strings and UTF-8 byte bodies before capture.

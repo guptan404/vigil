@@ -1,5 +1,11 @@
 # vigil_backend
 
+For a complete device-session uploader setup, use the
+[Flutter guide](../../docs/flutter-setup.md). Pair it with the
+[Express ingest/inspector setup](../../docs/backend-setup.md) and
+[four-key reference](../../docs/README.md#the-four-keys). New session features
+require matching Git packages; the published `0.1.2` lacks some of these APIs.
+
 An optional uploader for sending calls captured by `vigil_core` to a backend
 ingest endpoint in bounded batches. Local capture continues even when upload is
 disabled or temporarily fails.
