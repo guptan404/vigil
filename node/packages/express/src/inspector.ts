@@ -204,6 +204,7 @@ const copySession = byId("copy-session");
 const sessionInput = byId("session-id");
 const connectSession = byId("connect-session");
 let simulationAvailable = false;
+let failurePaths = [];
 
 function sessionLabel(session) {
   return session.deviceName || ({
@@ -283,6 +284,7 @@ function selectSession(id) {
   captures = [];
   lastPayload = "";
   simulationPayload = "";
+  failurePaths = [];
   failurePointsInitialized = false;
   failureRules.replaceChildren();
   failureStatus.textContent = "";
@@ -357,10 +359,8 @@ function renderFailures(state) {
   byId("request-key-help").hidden = !state.requestDebugKeyRequired;
   byId("rule-count").textContent = state.rules.length ? String(state.rules.length) : "";
   byId("clear-failures").disabled = state.rules.length === 0;
-  const path = byId("failure-path");
-  const selectedPath = path.value;
-  path.replaceChildren(...state.allowedPaths.map(value => new Option(value, value)));
-  if (state.allowedPaths.includes(selectedPath)) path.value = selectedPath;
+  failurePaths = state.allowedPaths;
+  renderFailureRequests();
   const point = byId("failure-point");
   const selectedPoint = point.value;
   const points = state.failurePoints ?? [];
@@ -382,6 +382,36 @@ function renderFailures(state) {
     return row;
   }));
 }
+
+function renderFailureRequests() {
+  const selector = byId("failure-path");
+  const previous = selector.value;
+  const options = failurePaths.flatMap(path => {
+    const methods = new Set(captures.flatMap(item => {
+      if (item.client?.sessionId !== selectedSessionId) return [];
+      const request = item.call.request;
+      try {
+        return new URL(request?.url).pathname === path && typeof request.method === "string"
+          ? [request.method] : [];
+      } catch { return []; }
+    }));
+    return [...(methods.size ? methods : [""])].map(method => {
+      const option = new Option(method ? method + " " + path : path, JSON.stringify([method, path]));
+      option.dataset.path = path;
+      option.dataset.method = method;
+      return option;
+    });
+  });
+  selector.replaceChildren(...options);
+  if (options.some(option => option.value === previous)) selector.value = previous;
+  if (selector.value !== previous) syncFailureMethod();
+}
+
+function syncFailureMethod() {
+  const method = byId("failure-path").selectedOptions[0]?.dataset.method;
+  if (method) byId("failure-method").value = method;
+}
+byId("failure-path").onchange = syncFailureMethod;
 
 async function loadFailures(id, version = viewGeneration) {
   const response = await fetch(scopedPath("/simulation"), {
@@ -440,7 +470,7 @@ failureForm.onsubmit = event => {
     const rule = {
       sessionId: selectedSessionId,
       method: byId("failure-method").value.trim().toUpperCase(),
-      path: byId("failure-path").value,
+      path: byId("failure-path").selectedOptions[0]?.dataset.path ?? "",
       effect,
       delayMs: Number(byId("failure-delay").value),
     };
@@ -489,13 +519,14 @@ function configureSelectedRequest(effect) {
   let path;
   try { path = new URL(request?.url).pathname; }
   catch { failureStatus.textContent = "This capture has no valid request URL."; return; }
-  const allowed = [...byId("failure-path").options].some(option => option.value === path);
-  if (!allowed) {
+  const option = [...byId("failure-path").options].find(option =>
+    option.dataset.path === path && (!option.dataset.method || option.dataset.method === request.method));
+  if (!option) {
     failureStatus.textContent = "This endpoint is not enabled for response controls on this server.";
     return;
   }
   byId("failure-method").value = request.method;
-  byId("failure-path").value = path;
+  byId("failure-path").value = option.value;
   byId("failure-point").value = "";
   byId("failure-effect").value = effect;
   byId("failure-code").value = effect === "mock" ? "200" : "500";
@@ -540,6 +571,7 @@ function render() {
   const active = rows.find(item => identity(item) === selected) ?? rows[0];
   selectedCapture = active;
   selected = active ? identity(active) : "";
+  renderFailureRequests();
   list.replaceChildren(...rows.map(item => {
     const call = item.call;
     const button = document.createElement("button");
@@ -638,6 +670,7 @@ function stop(message) {
   readKey = "";
   lastPayload = "";
   simulationPayload = "";
+  failurePaths = [];
   failurePointsInitialized = false;
   failurePanel.hidden = true;
   failureRules.replaceChildren();
@@ -903,7 +936,7 @@ pre { padding: 18px; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
   </label>
   <form id="failure-form">
     <label>Method <input id="failure-method" value="GET" required pattern="[A-Za-z]+" maxlength="20"></label>
-    <label>Exact path <select id="failure-path" required></select></label>
+    <label>Request <select id="failure-path" required></select></label>
     <label>Failure location <select id="failure-point">
       <option value="">Before route</option>
     </select></label>

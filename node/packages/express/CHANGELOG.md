@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Automatically select the captured request's HTTP method in desktop response controls, including separate choices for methods sharing one path.
 - Added request-linked log diagnostics and registered code failure points.
 - Added device-session capture ingestion and a keyed desktop inspector with direct session connection.
 - Added session-scoped response mocks, exceptions, delays, timeouts, and disconnects, with separate read/control keys and captured-path eligibility.

@@ -59,8 +59,10 @@ can list the sink's device sessions. A new app initialization has a new ID.
 In the desktop, select a device and open **Response controls**. Enter the
 **Simulation control key** (server control key). Select a captured request and
 choose **Mock response** or **Fail request** to fill its method and path, or
-choose them in the rule form. In the backend guide's configuration, all captured
-API methods/paths in that session are eligible, excluding Vigil's own routes.
+choose them in the rule form. Choosing a captured request automatically updates
+the Method field. Requests sharing a path appear separately by method (for
+example, `GET /orders` and `POST /orders`). In the backend guide's configuration,
+all captured API methods/paths in that session are eligible, excluding Vigil's own routes.
 
 For a mock, choose the status and JSON body. For a real code failure, choose a
 registered failure location such as **users.lookup**. That location must have
