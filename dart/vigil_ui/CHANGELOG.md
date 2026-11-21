@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Match the inspector and system navigation area to the app's scaffold background, avoiding a tinted bottom strip.
+- Handle system Back inside the inspector before closing it, preserving the underlying app route, including MaterialApp.router integrations.
 - Added expandable JSON search and JSON-path copying, host/method/status/duration filters, saved sessions with notes and import/export, and request/response comparison.
 - Added edit/replay and local mock editors, session-ID copying, and refined Vigil branding.
 - Added separate copy actions for the endpoint, request content, and response content, plus a **Copy all** action that copies them together, configurable with `VigilCopyOptions`.
