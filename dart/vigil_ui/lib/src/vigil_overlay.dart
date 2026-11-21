@@ -8,6 +8,7 @@ import 'package:vigil_core/vigil_core.dart';
 
 import 'vigil_copy_options.dart';
 import 'vigil_inspector.dart';
+import 'inspector_surface.dart';
 
 /// Places the Vigil inspector above an application and optionally opens it by
 /// shake gesture or floating action button.
@@ -66,6 +67,8 @@ class _VigilOverlayState extends State<VigilOverlay> {
   bool _isInspectorOpen = false;
   StreamSubscription<UserAccelerometerEvent>? _shakeSubscription;
   DateTime? _lastShakeAt;
+  final _childKey = GlobalKey();
+  Route<void>? _inspectorRoute;
 
   @override
   void initState() {
@@ -81,28 +84,24 @@ class _VigilOverlayState extends State<VigilOverlay> {
         oldWidget.shakeEvents != widget.shakeEvents) {
       _configureShakeListener();
     }
+    if (!widget.enabled) _removeInspectorRoute();
   }
 
   @override
   void dispose() {
     _shakeSubscription?.cancel();
+    _removeInspectorRoute();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.enabled) return widget.child;
+    final child = KeyedSubtree(key: _childKey, child: widget.child);
+    if (!widget.enabled) return child;
 
     return Stack(
       children: [
-        widget.child,
-        if (_isInspectorOpen)
-          _InspectorPanel(
-            onClose: _closeInspector,
-            replay: widget.replay,
-            mocks: widget.mocks,
-            copyOptions: widget.copyOptions,
-          ),
+        child,
         if (widget.showFloatingButton && !_isInspectorOpen)
           Positioned(
             right: 16,
@@ -154,17 +153,67 @@ class _VigilOverlayState extends State<VigilOverlay> {
   void _openInspector() {
     if (!mounted) return;
     if (_isInspectorOpen) return;
+    final navigator = _applicationNavigator();
+    if (navigator == null) return;
+
+    final panel = InheritedTheme.captureAll(
+      context,
+      _InspectorPanel(
+        navigatorKey: GlobalKey<NavigatorState>(),
+        onClose: () => navigator.pop(),
+        replay: widget.replay,
+        mocks: widget.mocks,
+        copyOptions: widget.copyOptions,
+      ),
+    );
+    final route = MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => panel,
+    );
+    _inspectorRoute = route;
     setState(() => _isInspectorOpen = true);
+    unawaited(navigator.push(route).whenComplete(() {
+      if (_inspectorRoute != route) return;
+      _inspectorRoute = null;
+      if (mounted) setState(() => _isInspectorOpen = false);
+    }));
   }
 
-  void _closeInspector() {
-    if (!mounted) return;
-    setState(() => _isInspectorOpen = false);
+  NavigatorState? _applicationNavigator() {
+    final ancestor = Navigator.maybeOf(context, rootNavigator: true);
+    if (ancestor != null) return ancestor;
+
+    // MaterialApp.builder places this widget above the application's Navigator
+    // (or Router), so find its first Navigator in the application child only.
+    NavigatorState? navigator;
+    void visit(Element element) {
+      if (navigator != null) return;
+      if (element is StatefulElement && element.state is NavigatorState) {
+        navigator = element.state as NavigatorState;
+        return;
+      }
+      element.visitChildElements(visit);
+    }
+
+    _childKey.currentContext?.visitChildElements(visit);
+    return navigator;
+  }
+
+  void _removeInspectorRoute() {
+    final route = _inspectorRoute;
+    if (route == null) return;
+    _inspectorRoute = null;
+    _isInspectorOpen = false;
+    // Configuration changes/disposal can happen during the Navigator's build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (route.isActive) route.navigator?.removeRoute(route);
+    });
   }
 }
 
 class _InspectorPanel extends StatelessWidget {
   const _InspectorPanel({
+    required this.navigatorKey,
     required this.onClose,
     required this.copyOptions,
     this.replay,
@@ -175,18 +224,23 @@ class _InspectorPanel extends StatelessWidget {
   final VigilReplay? replay;
   final VigilMockController? mocks;
   final VigilCopyOptions copyOptions;
+  final GlobalKey<NavigatorState> navigatorKey;
 
   @override
   Widget build(BuildContext context) {
-    return Positioned.fill(
+    return InspectorSurface(
       child: HeroControllerScope.none(
-        child: Navigator(
-          onGenerateRoute: (_) => MaterialPageRoute<void>(
-            builder: (_) => VigilInspector(
-              onClose: onClose,
-              replay: replay,
-              mocks: mocks,
-              copyOptions: copyOptions,
+        child: NavigatorPopHandler<void>(
+          onPopWithResult: (_) => navigatorKey.currentState?.pop(),
+          child: Navigator(
+            key: navigatorKey,
+            onGenerateRoute: (_) => MaterialPageRoute<void>(
+              builder: (_) => VigilInspector(
+                onClose: onClose,
+                replay: replay,
+                mocks: mocks,
+                copyOptions: copyOptions,
+              ),
             ),
           ),
         ),

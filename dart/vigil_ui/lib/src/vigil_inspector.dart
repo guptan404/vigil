@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vigil_core/vigil_core.dart';
 
 import 'vigil_copy_options.dart';
+import 'inspector_surface.dart';
 
 part 'vigil_inspector_tools.dart';
 part 'vigil_sessions.dart';
@@ -67,7 +68,8 @@ class _VigilInspectorState extends State<VigilInspector> {
         final visibleCalls = _filteredCalls(calls);
         final selectedCall = _selectedCall(visibleCalls);
 
-        return Theme(
+        return InspectorSurface(
+            child: Theme(
           data: _inspectorTheme(context),
           child: Builder(
             builder: (context) => _InspectorTools(
@@ -168,7 +170,7 @@ class _VigilInspectorState extends State<VigilInspector> {
               ),
             ),
           ),
-        );
+        ));
       },
     );
   }
@@ -810,7 +812,8 @@ class _CallDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Theme(
+    return InspectorSurface(
+        child: Theme(
       data: _inspectorTheme(context),
       child: Builder(
         builder: (context) => Scaffold(
@@ -840,7 +843,7 @@ class _CallDetailPage extends StatelessWidget {
           body: _CallDetailPane(call: call, vigil: vigil),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -2002,7 +2005,9 @@ Color _surfaceBase(BuildContext context) {
 
 ThemeData _inspectorTheme(BuildContext context) {
   final parent = Theme.of(context);
-  final scheme = parent.colorScheme;
+  final scheme = parent.colorScheme.copyWith(
+    surface: parent.scaffoldBackgroundColor,
+  );
 
   final textTheme = parent.textTheme.apply(
     bodyColor: scheme.onSurface,

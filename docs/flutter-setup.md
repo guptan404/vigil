@@ -207,6 +207,12 @@ in response headers. Include your app's normal auth/content headers too.
 
 ## Capture, masking, and identity
 
+`VigilOverlay` presents the inspector on the application's navigator, including
+when used in a `MaterialApp` or `MaterialApp.router` builder. System Back first
+leaves inspector detail/tool pages, then closes Vigil and returns to the app's
+current page. The inspector and its system navigation area use the host's
+scaffold background; closing it restores the app's own system-bar style.
+
 Initialize Vigil before creating the interceptor and uploader. Do not reinitialize
 per request: each initialization creates a fresh device session unless supplied
 through `VigilConfig.session`. The interceptor automatically sends the matching

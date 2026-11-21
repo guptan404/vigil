@@ -181,6 +181,11 @@ void main() {
 
     expect(find.textContaining('Vigil'), findsWidgets);
     expect(find.byType(FloatingActionButton), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(VigilInspector), findsNothing);
+    expect(find.text('App'), findsOneWidget);
   });
 
   testWidgets('inspector background covers system safe-area insets',
@@ -198,22 +203,141 @@ void main() {
     Vigil.instance.init();
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          scaffoldBackgroundColor: Colors.white,
+        ),
         home: VigilOverlay(
           enableShake: false,
           showFloatingButton: true,
-          child: ColoredBox(color: Colors.pink),
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle.light.copyWith(
+              systemNavigationBarColor: Colors.pink,
+            ),
+            child: const ColoredBox(
+              color: Colors.pink,
+              child: SizedBox.expand(),
+            ),
+          ),
         ),
       ),
     );
 
+    expect(SystemChrome.latestStyle?.systemNavigationBarColor, Colors.pink);
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
     final inspector = find.byType(Scaffold).last;
     expect(tester.getTopLeft(inspector), Offset.zero);
     expect(tester.getBottomRight(inspector), const Offset(390, 844));
+    expect(tester.widget<Scaffold>(inspector).backgroundColor, Colors.white);
+    expect(SystemChrome.latestStyle?.systemNavigationBarColor, Colors.white);
+    expect(SystemChrome.latestStyle?.systemNavigationBarIconBrightness,
+        Brightness.dark);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(SystemChrome.latestStyle?.systemNavigationBarColor, Colors.pink);
   });
+
+  testWidgets('disabling an open overlay keeps the app navigator intact',
+      (tester) async {
+    final enabled = ValueNotifier(true);
+    addTearDown(enabled.dispose);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    Vigil.instance.init();
+    await tester.pumpWidget(MaterialApp(
+      navigatorKey: navigatorKey,
+      home: const Scaffold(body: Text('App home')),
+      builder: (context, child) => ValueListenableBuilder<bool>(
+        valueListenable: enabled,
+        builder: (_, value, __) => VigilOverlay(
+          enabled: value,
+          enableShake: false,
+          showFloatingButton: true,
+          child: child!,
+        ),
+      ),
+    ));
+    final navigator = navigatorKey.currentState;
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(VigilInspector), findsOneWidget);
+    enabled.value = false;
+    await tester.pumpAndSettle();
+    expect(find.byType(VigilInspector), findsNothing);
+    expect(find.text('App home'), findsOneWidget);
+    expect(navigatorKey.currentState, same(navigator));
+
+    enabled.value = true;
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Close inspector'));
+    await tester.pumpAndSettle();
+    expect(find.byType(VigilInspector), findsNothing);
+    expect(find.text('App home'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final useRouter in [false, true]) {
+    testWidgets(
+        'system Back unwinds Vigil before the app with ${useRouter ? 'MaterialApp.router' : 'MaterialApp.builder'}',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final vigil = Vigil.instance..init();
+      _recordJsonCall(vigil, path: '/back-check', responseFields: 1);
+      final delegate = _InspectorTestRouterDelegate();
+      final navigatorKey =
+          useRouter ? delegate.navigatorKey : GlobalKey<NavigatorState>();
+
+      Widget overlay(BuildContext context, Widget? child) => VigilOverlay(
+            enabled: true,
+            enableShake: false,
+            showFloatingButton: true,
+            child: child ?? const SizedBox.shrink(),
+          );
+
+      await tester.pumpWidget(useRouter
+          ? MaterialApp.router(routerDelegate: delegate, builder: overlay)
+          : MaterialApp(
+              navigatorKey: navigatorKey,
+              builder: overlay,
+              home: const Scaffold(body: Text('App home')),
+            ));
+      unawaited(navigatorKey.currentState!.push(MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('App page')),
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(VigilInspector), findsOneWidget);
+
+      await tester.tap(find.text('/back-check'));
+      await tester.pumpAndSettle();
+      expect(find.text('Request details'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Request details'), findsNothing);
+      expect(find.byType(VigilInspector), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(VigilInspector), findsNothing);
+      expect(find.text('App page'), findsOneWidget);
+      expect(navigatorKey.currentState!.canPop(), isTrue);
+
+      // Once closed, Back belongs to the application again.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('App home'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('overlay opens inspector from shake', (tester) async {
     Vigil.instance.init();
@@ -777,6 +901,23 @@ String _clock(DateTime value) {
   final local = value.toLocal();
   String two(int part) => part.toString().padLeft(2, '0');
   return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+}
+
+class _InspectorTestRouterDelegate extends RouterDelegate<Object>
+    with ChangeNotifier, PopNavigatorRouterDelegateMixin<Object> {
+  @override
+  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  Future<void> setNewRoutePath(Object configuration) async {}
+
+  @override
+  Widget build(BuildContext context) => Navigator(
+        key: navigatorKey,
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('App home')),
+        ),
+      );
 }
 
 /// Scrolls the visible request-detail tab until [finder] is on screen.
